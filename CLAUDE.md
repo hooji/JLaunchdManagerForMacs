@@ -34,10 +34,43 @@ cross-platform API is designed and approved.
 ## Project plan (owner's 5 steps)
 
 1. ✅ **Research all platforms & document quirks** — done. See `docs/research/`.
-2. ⏳ **Design an overarching API** that works across all platforms — next.
+2. ⏳ **Design an overarching API** that works across all platforms — **proposal written**,
+   pending final approval. See `docs/design/api-design.md`.
 3. ⬜ Design clean interop with each platform's native facilities.
-4. ⬜ Implement per-platform modules one at a time (macOS → systemd → Windows → OpenRC).
+4. ⬜ Implement per-platform modules one at a time (macOS → systemd → OpenRC → Windows).
 5. ⬜ Assemble the unified library behind one facade.
+
+## Design docs (step 2)
+
+- `docs/design/api-design.md` — **the API proposal**: the three-tier uniformity model
+  (uniform core / typed platform option blocks / fail-fast capability gaps), the
+  `ServiceManager` facade, `ServiceSpec` model, and the Windows Java-host design.
+- `docs/ROADMAP.md` — deferred items (WinSW alt host, lower-JDK Mac/Linux build, SysV/runit,
+  cron fallback, D-Bus).
+
+## Owner-approved decisions (step 2)
+
+1. **Windows daemons → bundled pure-Java FFM service host** (a runnable class in our single
+   jar). It speaks the SCM protocol via FFM upcalls and supervises the real command. This is
+   the default "simple" path (90%+ cases). WinSW support is a later roadmap option.
+2. **JDK 25 baseline.** A lower-JDK (down to ~JDK 8) **Mac/Linux-only** build is a roadmap item
+   (the 25 floor exists only for the Windows FFM paths).
+3. **systemd and OpenRC are both v1**, modeled as **separate platforms** with separate
+   backends. **No public pluggable SPI** — the internal `Backend` interface is code-org only.
+4. **Fail-fast** on capability gaps (e.g. calendar schedule on OpenRC). Solidify the core;
+   add edge-case handling as testing reveals the need.
+
+### Core API shape (see design doc for detail)
+
+- `ServiceManager` is **scope-bound** (`.user()` / `.system()`); lifecycle ops take just the
+  service `id`. `enable`/`disable` (boot persistence) are **separate** from `start`/`stop`
+  (run now); `installEnableStart(spec)` is the combined convenience.
+- `ServiceSpec` (immutable builder) holds the **uniform core** (id, command, env, workdir,
+  user, log paths, `autoStart`, `RestartPolicy` NEVER/ON_FAILURE/ALWAYS, optional `Schedule`).
+- Platform-unique power lives in optional, typed, namespaced blocks: `.mac(...)`,
+  `.systemd(...)`, `.windows(...)`, `.openrc(...)` — applied on their platform, ignored
+  elsewhere. Capability gaps throw `UnsupportedFeatureException` at `install()`.
+- `Platform` enum: `MACOS_LAUNCHD | LINUX_SYSTEMD | LINUX_OPENRC | WINDOWS` (runtime-detected).
 
 ## Research docs (step 1 output — read these first)
 
