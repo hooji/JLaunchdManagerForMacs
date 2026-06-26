@@ -62,14 +62,25 @@ cross-platform API is designed and approved.
 
 ### Core API shape (see design doc for detail)
 
-- `ServiceManager` is **scope-bound** (`.user()` / `.system()`); lifecycle ops take just the
-  service `id`. `enable`/`disable` (boot persistence) are **separate** from `start`/`stop`
-  (run now); `installEnableStart(spec)` is the combined convenience.
+- Single `ServiceManager.forThisPlatform()` (no scope-bound variants). Lifecycle ops take
+  just the service `id`; the manager resolves the domain (current-user first, then system).
+  `enable`/`disable` (boot persistence) are **separate** from `start`/`stop` (run now);
+  `installEnableStart(spec)` is the combined convenience. `install` is **upsert** (create or
+  update).
+- **Run-as identity is a builder field**, not a separate axis: `.asCurrentUser()` (default),
+  `.asUser(name)`, `.asSystemDaemon()` — each implies its management domain. Backed by a small
+  inspectable `RunAs` value type. (This replaced the earlier `Scope` + `runAsUser` redundancy.)
 - `ServiceSpec` (immutable builder) holds the **uniform core** (id, command, env, workdir,
-  user, log paths, `autoStart`, `RestartPolicy` NEVER/ON_FAILURE/ALWAYS, optional `Schedule`).
+  identity, log paths, `autoStart`, `RestartPolicy` NEVER/ON_FAILURE/ALWAYS, nullable
+  `Schedule`). Nullable fields use `null`, never `Optional`. `toBuilder()` enables read→modify→
+  re-install.
 - Platform-unique power lives in optional, typed, namespaced blocks: `.mac(...)`,
   `.systemd(...)`, `.windows(...)`, `.openrc(...)` — applied on their platform, ignored
-  elsewhere. Capability gaps throw `UnsupportedFeatureException` at `install()`.
+  elsewhere, each with sensible per-platform defaults. Capability gaps throw
+  `UnsupportedFeatureException` at `install()`.
+- Discovery/inspection: `list()` (all), `listManaged()` / `isManaged(id)` (only services we
+  created, via an embedded marker), `read(id)` → `ServiceSpec` (null if absent), `readNative(id)`
+  → verbatim definition text.
 - `Platform` enum: `MACOS_LAUNCHD | LINUX_SYSTEMD | LINUX_OPENRC | WINDOWS` (runtime-detected).
 
 ## Research docs (step 1 output — read these first)
@@ -141,6 +152,13 @@ No UI — API only. The library:
 
 - **`final` by default**: all method arguments and local variables are `final`
   unless mutation is genuinely required.
+- **Never use `var`.** Always write the explicit type.
+- **No `Optional` anywhere** — not in `ServiceSpec`, not in return types, not
+  internally. Use plain references and **`null`** for "absent"; document nullability.
+  Collections are never null (return empty).
+- **No Java Streams API** anywhere (no `.stream()`, `Collectors`, etc.). Use plain
+  loops.
+- **Indent with tabs**, not spaces (Java sources and code in docs).
 - Prefer immutable value objects (records / builders) for the domain model.
 - Clean, minimal, "dead simple" public surface. Hide launchctl/plist mechanics
   behind a small facade.

@@ -41,6 +41,15 @@ parking lot for decisions already discussed.
 - Init-less container detection guidance (PID 1 is the app) — clear error + docs today;
   possibly a "foreground supervisor" mode later.
 
+## Deferred — defaults & configuration
+
+- **Configurable per-platform defaults.** v1 hard-codes sensible defaults for each platform's
+  option block (e.g. systemd `Type=exec`, OpenRC `supervise-daemon` when restart != NEVER — see
+  `docs/design/api-design.md` §6.1). These will be refined through experience. Later, expose a
+  way to override the defaults globally (e.g. a `Defaults`/policy object passed to
+  `ServiceManager`, or a config file) so a consumer can set their own house style without
+  repeating option blocks on every spec.
+
 ## Deferred — features
 
 - D-Bus/`sd-bus` (via FFM) for event-driven systemd status streaming, if a consumer needs
