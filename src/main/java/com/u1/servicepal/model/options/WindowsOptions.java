@@ -13,10 +13,14 @@ public final class WindowsOptions {
 
 	private final StartType startType;
 	private final List<String> dependsOn;
+	private final String account;
+	private final String password;
 
 	private WindowsOptions(final Builder b) {
 		this.startType = b.startType;
 		this.dependsOn = List.copyOf(b.dependsOn);
+		this.account = b.account;
+		this.password = b.password;
 	}
 
 	public StartType startType() {
@@ -27,6 +31,21 @@ public final class WindowsOptions {
 		return dependsOn;
 	}
 
+	/**
+	 * The Windows log-on account (the SCM {@code lpServiceStartName}), e.g.
+	 * {@code "NT AUTHORITY\\LocalService"} or {@code "NT AUTHORITY\\NetworkService"}. Nullable;
+	 * when null the identity is derived from {@code RunAs} (system daemon ⇒ LocalSystem,
+	 * named user ⇒ that user). A {@code RunAs.asUser(name)} sets the account to that user.
+	 */
+	public String account() {
+		return account;
+	}
+
+	/** The log-on account's password, or {@code null} (built-in accounts need none). */
+	public String password() {
+		return password;
+	}
+
 	public static Builder builder() {
 		return new Builder();
 	}
@@ -35,6 +54,8 @@ public final class WindowsOptions {
 
 		private StartType startType;
 		private final List<String> dependsOn = new ArrayList<>();
+		private String account;
+		private String password;
 
 		public Builder startType(final StartType value) {
 			this.startType = value;
@@ -43,6 +64,16 @@ public final class WindowsOptions {
 
 		public Builder dependsOn(final String service) {
 			this.dependsOn.add(service);
+			return this;
+		}
+
+		public Builder account(final String value) {
+			this.account = value;
+			return this;
+		}
+
+		public Builder password(final String value) {
+			this.password = value;
 			return this;
 		}
 

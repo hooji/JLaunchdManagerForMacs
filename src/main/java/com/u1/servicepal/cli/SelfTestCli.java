@@ -32,17 +32,21 @@ public final class SelfTestCli {
 		final boolean root = "root".equals(System.getProperty("user.name"));
 		final ServiceSpec.Builder builder = ServiceSpec.builder()
 				.id(ID)
-				.command("/bin/sleep", "120")
 				.autoStart(true);
 		if (platform == Platform.MACOS_LAUNCHD) {
-			builder.asCurrentUser();   // a per-user launchd agent; no root needed
+			builder.command("/bin/sleep", "120")
+					.asCurrentUser();   // a per-user launchd agent; no root needed
 		} else if (platform == Platform.LINUX_SYSTEMD) {
 			if (!root) {
 				System.out.println("SELFTEST SKIP: the systemd self-test installs a system-wide"
 						+ " unit and needs sudo (this is " + platform + ", non-root)");
 				return;
 			}
-			builder.asSystemDaemon();
+			builder.command("/bin/sleep", "120").asSystemDaemon();
+		} else if (platform == Platform.WINDOWS) {
+			// A long-running console-less command. The service host (javaw) supervises it; the
+			// SCM service runs as LocalSystem, so this needs Administrator (the CI runner is).
+			builder.command("ping", "-n", "120", "127.0.0.1").asSystemDaemon();
 		} else {
 			System.out.println("SELFTEST SKIP: mutation not implemented for " + platform);
 			return;

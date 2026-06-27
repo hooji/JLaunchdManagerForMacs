@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: maven
 
       - name: Build jar
@@ -37,18 +37,21 @@ jobs:
         run: java -jar target/servicepal.jar || true
 
       # Real mutation lifecycle (install -> start -> inspect -> uninstall) of a throwaway
-      # PER_USER agent. macOS does the real work; other platforms print SKIP. Non-fatal so the
-      # probe stays informational — read the SELFTEST PASS/FAIL line in the log.
+      # service. macOS (PER_USER agent) and Windows (LocalSystem SCM service via the FFM
+      # ServiceHost) do real work here; Linux needs sudo (separate step below). Non-fatal so
+      # the probe stays informational — read the SELFTEST PASS/FAIL line in the log.
+      # --enable-native-access is required because SelfTestCli drives the SCM via FFM in-process
+      # on Windows (JEP 472); it's a harmless no-op on the subprocess-only platforms.
       - name: Probe — mutation self-test
         shell: bash
-        run: java -cp target/servicepal.jar com.u1.servicepal.cli.SelfTestCli || true
+        run: java --enable-native-access=ALL-UNNAMED -cp target/servicepal.jar com.u1.servicepal.cli.SelfTestCli || true
 
       # systemd installs a system-wide unit, which needs root — run the self-test under sudo
       # on Linux (the ubuntu runner is systemd). macOS already covered by the non-sudo step.
       - name: Probe — mutation self-test (root, systemd)
         if: runner.os == 'Linux'
         shell: bash
-        run: sudo "$(which java)" -cp target/servicepal.jar com.u1.servicepal.cli.SelfTestCli || true
+        run: sudo "$(which java)" --enable-native-access=ALL-UNNAMED -cp target/servicepal.jar com.u1.servicepal.cli.SelfTestCli || true
 
       - name: Probe — run as root (macOS/Linux)
         if: runner.os != 'Windows'
@@ -83,15 +86,17 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: maven
 
       - name: Build jar (on host)
         run: mvn -B -ntp -DskipTests package
 
+      # Use a Temurin 25 Alpine image (the jar is JDK 25) and add OpenRC so platform
+      # detection hits LINUX_OPENRC.
       - name: Probe inside Alpine + OpenRC
         run: |
-          docker run --rm -v "$PWD:/w" -w /w alpine:latest sh -c '
-            apk add --no-cache openjdk21-jre openrc >/dev/null &&
+          docker run --rm -v "$PWD:/w" -w /w eclipse-temurin:25-jdk-alpine sh -c '
+            apk add --no-cache openrc >/dev/null &&
             echo "rc-service: $(command -v rc-service)" &&
             java -jar target/servicepal.jar || true'

@@ -1,9 +1,27 @@
 # Windows implementation plan — handoff for the next session
 
-This is the detailed, actionable plan for building the **Windows** backend. macOS (launchd)
-and Linux (systemd) are already implemented end-to-end and **validated on real systems via the
-CI probe**; Windows and OpenRC remain. Windows is the biggest job (FFM + the SCM protocol),
-hence this dedicated plan.
+> **STATUS: IMPLEMENTED.** The Windows backend described below now exists under
+> `src/main/java/com/u1/servicepal/internal/windows/` and compiles + unit-tests green under
+> JDK 25 (`Scm`/`FfmScm`, `ServiceHost`, `TaskScheduler`/`SchtasksScheduler`, `TaskXmlWriter`,
+> `Sidecar{Writer,Reader}`+`Json`, `WindowsBackend`, wired into `DefaultServiceManager`). It
+> follows this plan closely; deviations are noted inline as **[as-built]**. What remains is
+> **runtime validation of the FFM `ServiceHost` + SCM path on the `windows-latest` probe**
+> (off-Windows unit tests use `RecordingScm`/`RecordingTaskScheduler`; the live SCM/FFM only
+> runs on Windows). Read the probe's `SELFTEST PASS/FAIL` line and iterate.
+
+This is the detailed, actionable plan for the **Windows** backend. macOS (launchd) and Linux
+(systemd) were implemented end-to-end and **validated on real systems via the CI probe** first;
+Windows is the biggest job (FFM + the SCM protocol), hence this dedicated plan.
+
+**[as-built] notes vs the plan below:**
+- Backend package is `internal/windows` with classes exactly as in §3. The native seam is `Scm`
+  (single-service ops only — no `enumerate()`; discovery scans the sidecar directory instead, the
+  analog of systemd scanning its unit dir). `QueryServiceConfigW` supplies the start type for the
+  `enabled` flag.
+- The sidecar is parsed/written by a small confined `Json` codec (no Jackson, per house style).
+- **SYSTEM_WIDE-only v1** (`perUserInstall=false`), as recommended in §4. Calendar **and** interval
+  scheduling are supported via Task Scheduler (capabilities report both true).
+- `SelfTestCli` Windows branch uses `ping -n 120 127.0.0.1` as the long-running command, as in §5.
 
 **Read first:** `docs/research/windows-services.md` (SCM + Task Scheduler + the quirk),
 `docs/research/java-ffm-native-access.md` (FFM maturity), `docs/design/api-design.md` §10 (the

@@ -29,13 +29,13 @@ jobs:
           # tag supplied as an input.
           ref: ${{ github.event.inputs.tag || github.ref }}
 
-      # Baseline is JDK 21 for now (the implemented backends are subprocess +
-      # file I/O, no FFM). Bump to 25 when the Windows FFM service host lands.
-      - name: Set up JDK 21
+      # Baseline is JDK 25 LTS (the Windows FFM service host needs FFM, final in 22;
+      # 25 is the first LTS with it final).
+      - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: maven
 
       - name: Resolve tag and version

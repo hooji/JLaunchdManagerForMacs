@@ -37,15 +37,20 @@ cross-platform API is designed and approved.
 2. ✅ **Design an overarching API** that works across all platforms — done & approved.
    See `docs/design/api-design.md`.
 3. ⏳ **Design clean interop with each platform's native facilities** — underway alongside step 4.
-4. ⏳ **Implement per-platform modules** (macOS → systemd → OpenRC → Windows) — **macOS and
-   Linux/systemd complete** (discovery + inspection + mutation, see below); OpenRC is next.
-5. ⬜ Assemble the unified library behind one facade.
+4. ⏳ **Implement per-platform modules** (macOS → systemd → Windows → OpenRC) — **macOS,
+   Linux/systemd, and Windows complete** (discovery + inspection + mutation, see below);
+   OpenRC is the last backend.
+5. ⏳ Assemble the unified library behind one facade — **largely done**: the facade + manager are
+   platform-agnostic and all three implemented backends are wired into
+   `DefaultServiceManager.create()`; only OpenRC remains to add.
 
 ## Implementation status (live)
 
-- **Build:** Maven, `mvn verify`. Compiler `release` is **21 for now** (the implemented
-  macOS/Linux paths are subprocess + file I/O, no FFM) — rises to **JDK 25** when the Windows
-  FFM service host lands (see `pom.xml` comment). Matches the roadmap's lower-JDK Mac/Linux build.
+- **Build:** Maven, `mvn verify`. Compiler `release` is **25** (the Windows FFM service host
+  needs FFM — final in JDK 22; 25 is the first LTS with it final). The macOS/systemd paths stay
+  21-compatible subprocess + file I/O, but the single jar builds on 25. A lower-JDK Mac/Linux-only
+  build stays a roadmap item. Consuming apps pass `--enable-native-access=ALL-UNNAMED` (JEP 472)
+  for the Windows FFM paths.
 - **Done:** full public model (`ServiceSpec`/`RunAs`/`Schedule`/`ServiceStatus`/`Capabilities`/
   exceptions), `ServiceManager` facade, platform detection, and the **complete macOS launchd
   backend** — discovery/inspection (`list`/`listManaged`/`read`/`readNative`/`status`/
@@ -61,11 +66,24 @@ cross-platform API is designed and approved.
   `~/.config/systemd/user`; SYSTEM_WIDE → system manager + `/etc/systemd/system`. Full
   discovery + mutation. **Services only for now — `.timer` (calendar/interval) is deferred**,
   so systemd reports `calendar`/`interval` capabilities as false (scheduled jobs fail fast).
-- **48 unit tests**, all platform-independent (stubbed `CommandRunner`/`Launchctl`/`Systemctl`,
-  temp-dir definitions). GitHub Actions CI on ubuntu/macos/windows; the probe runs a real
-  `systemctl` lifecycle (sudo) on the ubuntu runner and a real launchd lifecycle on macOS.
-- **Not yet:** the **OpenRC/Windows** backends (an `UnimplementedBackend` reports platform +
-  intended capabilities but throws on use); systemd `.timer` scheduling.
+- **Done — Windows backend** (`internal/windows`): routes by job shape — **daemons** (long-running)
+  become SCM services driven through `Scm` (real impl `FfmScm` reaches `advapi32.dll` via **Java
+  FFM**), and **scheduled jobs** go to **Task Scheduler** via `schtasks` (`SchtasksScheduler` +
+  `TaskXmlWriter`). A Windows service binary must speak the SCM control protocol, so daemons are
+  registered with the bundled pure-Java **`ServiceHost`** (FFM upcalls: `StartServiceCtrlDispatcherW`
+  → `ServiceMain` → `RegisterServiceCtrlHandlerExW` → `SetServiceStatus`) that supervises the real
+  command and implements `RestartPolicy` via a respawn loop. Each managed service has a **sidecar
+  JSON** (`%ProgramData%\ServicePal\<id>.json`, hand-rolled `Json` codec, marker `servicePalManaged`)
+  carrying the full spec — the SCM only stores a command line. **SYSTEM_WIDE only for v1**
+  (`perUserInstall=false`); calendar+interval scheduling supported via Task Scheduler; structured
+  status via `QueryServiceStatusEx`. All native access behind `Scm`/`TaskScheduler` so it unit-tests
+  off-Windows (`RecordingScm`/`RecordingTaskScheduler`).
+- **68 unit tests**, all platform-independent (stubbed `CommandRunner`/`Launchctl`/`Systemctl`/`Scm`/
+  `TaskScheduler`, temp-dir definitions). GitHub Actions CI on ubuntu/macos/windows; the probe runs a
+  real `systemctl` lifecycle (sudo) on ubuntu, a real launchd lifecycle on macOS, and a real SCM
+  lifecycle (FFM `ServiceHost` install→start→inspect→uninstall) on the windows runner.
+- **Not yet:** the **OpenRC** backend (an `UnimplementedBackend` reports platform + intended
+  capabilities but throws on use); systemd `.timer` scheduling.
 - **Refinements made during impl:**
   - `ServiceStatus` gained an `installation` field (handy for discovery grouping).
   - Discovery returns a **`Discovery(services, unreadable)`** — root-only/malformed plists are
@@ -99,14 +117,19 @@ cross-platform API is designed and approved.
 - `docs/ROADMAP.md` — deferred items (WinSW alt host, lower-JDK Mac/Linux build, SysV/runit,
   cron fallback, D-Bus).
 
-## ▶ Next session: implement **Windows** (the big remaining job)
+## ▶ Next session: implement **OpenRC** (the last backend) + validate Windows on the probe
 
-Two backends remain: **Windows** (large — FFM service host + Task Scheduler; the pivotal SCM
-quirk) and **OpenRC** (small — subprocess + shell-script renderer, closest to the systemd shape;
-plus systemd `.timer` support). **Recommended next: Windows** — follow
-`docs/design/windows-implementation-plan.md` step by step, mirroring the existing
-`internal/{macos,systemd}` backends, and validate with the CI probe's `SelfTestCli` on the
-`windows-latest` runner (push to branch → probe → iterate → open the PR only once green).
+**Windows is implemented** (`internal/windows`, mirroring `internal/{macos,systemd}`) and compiles +
+unit-tests green under JDK 25. The real FFM `ServiceHost` + SCM path can only be exercised on a
+Windows runner, so the **first job is to read the probe's Windows `SelfTestCli` result** (the
+`windows-latest` job runs install→start→`RUNNING`+pid→uninstall as a LocalSystem service) and
+iterate on any error 1053 / access-denied / FFM-shape issues (push to branch → probe → repeat).
+
+One backend remains: **OpenRC** (small — subprocess + shell-script renderer, closest to the systemd
+shape, SYSTEM_WIDE-only, no FFM). Mirror `internal/systemd`: an `OpenRc` seam over
+`rc-service`/`rc-update`, an init-script writer/reader with a managed marker, and an
+`OpenRcBackend` wired into `DefaultServiceManager.create()`. After that, **systemd `.timer`**
+scheduling is the remaining capability gap. Watch the probe's Alpine/OpenRC job to validate.
 
 ## Owner-approved decisions (step 2)
 

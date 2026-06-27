@@ -9,16 +9,19 @@ services / daemons** with one uniform surface across **macOS (launchd), Linux
 
 ## Status
 
-Design is complete (see `docs/`). Implementation is in progress, vertical-slice first:
+Design is complete (see `docs/`). Three of the four backends are implemented:
 
-| Area | macOS | systemd | OpenRC | Windows |
-|------|:----:|:-------:|:------:|:-------:|
-| **Discovery / inspection** (`list`, `read`, `status`) | ✅ | ⬜ | ⬜ | ⬜ |
-| **Mutation** (`install`, `start`, `enable`, …) | ⬜ | ⬜ | ⬜ | ⬜ |
+| Area | macOS | systemd | Windows | OpenRC |
+|------|:----:|:-------:|:-------:|:------:|
+| **Discovery / inspection** (`list`, `read`, `status`) | ✅ | ✅ | ✅ | ⬜ |
+| **Mutation** (`install`, `start`, `enable`, …) | ✅ | ✅ | ✅ | ⬜ |
 
-The current build implements **discovery + inspection on macOS** end-to-end, plus the
-full cross-platform model, platform detection, and a discovery CLI. Mutation and the
-other backends throw a clear `UnsupportedOperationException` for now.
+macOS (launchd), Linux/systemd, and Windows are implemented end-to-end — discovery,
+inspection, and mutation — alongside the full cross-platform model, platform detection, and a
+discovery CLI. On Windows, long-running daemons run as SCM services supervised by a bundled
+pure-Java FFM service host, and scheduled jobs go to Task Scheduler. **OpenRC** is the last
+backend and throws a clear `UnsupportedOperationException` for now; systemd `.timer` scheduling
+is also still pending.
 
 ## Build & test
 
@@ -26,20 +29,24 @@ other backends throw a clear `UnsupportedOperationException` for now.
 mvn verify
 ```
 
-Requires JDK 21+ for now (the implemented macOS/Linux paths are subprocess + file I/O,
-no FFM). The baseline rises to **JDK 25** when the Windows FFM service host lands.
+Requires **JDK 25** (the Windows FFM service host uses `java.lang.foreign`, final in JDK 22;
+25 is the first LTS with it final). The macOS/systemd paths are subprocess + file I/O and stay
+21-compatible, but the single jar builds on 25. On Windows, run consuming apps (and the CLI)
+with `--enable-native-access=ALL-UNNAMED` (JEP 472) so the SCM/FFM calls don't warn.
 
 ## Try the discovery CLI
 
 ```sh
 mvn -q package
-java -jar target/servicepal.jar            # list all discovered services
-java -jar target/servicepal.jar --managed  # only services ServicePal created
+java --enable-native-access=ALL-UNNAMED -jar target/servicepal.jar            # list all
+java --enable-native-access=ALL-UNNAMED -jar target/servicepal.jar --managed  # only ours
 ```
 
-On macOS it enumerates the launchd jobs in `~/Library/LaunchAgents`,
-`/Library/LaunchDaemons`, and `/Library/LaunchAgents`, enriched with live state from
-`launchctl list`. On other platforms it prints a friendly "not implemented yet" note.
+On macOS it enumerates the launchd jobs in `~/Library/LaunchAgents` and
+`/Library/LaunchDaemons`, on systemd the units under `/etc/systemd/system` and
+`~/.config/systemd/user`, and on Windows the ServicePal-managed services (sidecars under
+`%ProgramData%\ServicePal`), each enriched with live state. On OpenRC it prints a friendly
+"not implemented yet" note.
 
 ## Releases
 

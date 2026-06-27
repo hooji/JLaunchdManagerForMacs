@@ -17,20 +17,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Baseline is JDK 21 for now: the implemented backends (macOS launchd discovery)
-      # are pure subprocess + file I/O with no FFM. Bump to 25 when the Windows FFM
-      # service host lands (FFM is final in 22; 25 is the first LTS with it final).
-      - name: Set up JDK 21
+      # Baseline is JDK 25 LTS: the Windows FFM service host (internal/windows) needs FFM,
+      # final in JDK 22; 25 is the first LTS with it final. The macOS/systemd paths are
+      # 21-compatible, but the single jar builds on 25.
+      - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: "25"
           cache: maven
 
       - name: Build and test
         run: mvn -B -ntp verify
 
-      # Discovery is real on macOS; on Linux/Windows the CLI prints a friendly
-      # "not implemented yet" message and exits 0. Either way it must not crash.
+      # Discovery is real on macOS, Linux/systemd and Windows. Either way it must not crash.
+      # --enable-native-access lets the Windows backend reach the SCM via FFM without a warning
+      # (JEP 472); harmless on the subprocess-only platforms.
       - name: Smoke-test discovery CLI
-        run: java -jar target/servicepal.jar
+        run: java --enable-native-access=ALL-UNNAMED -jar target/servicepal.jar
