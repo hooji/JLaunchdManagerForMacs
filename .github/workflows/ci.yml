@@ -24,16 +24,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Broad OS coverage: two Ubuntu LTS releases, all three current macOS images
-        # (macos-13 = Intel, macos-14/15 = Apple Silicon), and two Windows Server releases.
+        # Current + one-prior per OS, on the newest available runner images (June 2026).
+        # macOS: macos-26 (Tahoe, the newest) + macos-15 (prior) — Apple's versioning jumped
+        # 15 -> 26, and the old macos-13/14 images are dropped (14 starts deprecation July 2026).
         os:
-          - ubuntu-22.04
+          - ubuntu-26.04
           - ubuntu-24.04
-          - macos-13
-          - macos-14
+          - macos-26
           - macos-15
-          - windows-2022
           - windows-2025
+          - windows-2022
 
     steps:
       - uses: actions/checkout@v4
