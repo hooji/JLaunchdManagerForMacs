@@ -21,10 +21,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * macOS/launchd backend. This increment implements discovery + inspection: it enumerates
- * {@code .plist} files in the standard locations and reads live state with domain-targeted
- * {@code launchctl print}. Files it can't read (permissions or malformed) are reported, not
- * silently dropped. Mutation (bootstrap/bootout/kickstart and the plist writer) is step 4.
+ * macOS/launchd backend, fully implemented (discovery + inspection + mutation). Discovery
+ * enumerates {@code .plist} files in the standard locations and reads live state with
+ * domain-targeted {@code launchctl print}; files it can't read (permissions or malformed)
+ * are reported, not silently dropped. Mutation writes the plist via {@link PlistWriter} and
+ * drives the modern {@code launchctl} subcommands (bootstrap/bootout/kickstart/kill/enable).
  */
 public final class LaunchdBackend implements Backend {
 

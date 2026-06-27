@@ -19,8 +19,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Wires a {@link Backend} to the {@link ServiceManager} facade. Discovery/inspection is fully
- * implemented; mutation throws {@link UnsupportedOperationException} until step 4.
+ * Wires a {@link Backend} to the {@link ServiceManager} facade: auto-resolves the
+ * {@link Installation} for by-id operations, runs install-time validation (foreign option
+ * blocks and capability gaps), and delegates discovery, inspection, and mutation to the
+ * backend. Backends for not-yet-implemented platforms throw {@link UnsupportedOperationException}.
  */
 public final class DefaultServiceManager implements ServiceManager {
 
