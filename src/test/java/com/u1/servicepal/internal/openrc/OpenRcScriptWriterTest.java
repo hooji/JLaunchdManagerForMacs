@@ -42,7 +42,9 @@ class OpenRcScriptWriterTest {
 		assertTrue(script.contains("supervisor=supervise-daemon"));
 		assertTrue(script.contains("respawn_max=0"));
 		assertTrue(script.contains("export LOG=\"info\""));
-		assertTrue(script.contains("output_log=\"/var/log/api.log\""));
+		// Derive the expected path string from the same Path so the assertion is OS-independent
+		// (Path.of("/var/log/api.log").toString() uses backslashes on a Windows CI runner).
+		assertTrue(script.contains("output_log=\"" + Path.of("/var/log/api.log") + "\""));
 		assertTrue(script.contains("pidfile=\"/run/com.example.api.pid\""));
 		// supervise-daemon manages foregrounding itself — no command_background.
 		assertFalse(script.contains("command_background"));
