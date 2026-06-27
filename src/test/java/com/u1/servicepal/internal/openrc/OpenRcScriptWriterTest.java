@@ -8,6 +8,7 @@ import com.u1.servicepal.Installation;
 import com.u1.servicepal.model.RestartPolicy;
 import com.u1.servicepal.model.RunAs;
 import com.u1.servicepal.model.ServiceSpec;
+import com.u1.servicepal.model.options.OpenRcOptions;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -65,6 +66,25 @@ class OpenRcScriptWriterTest {
 		assertTrue(script.contains("command_background=true"));
 		assertFalse(script.contains("supervisor="));
 		assertFalse(script.contains("respawn_max"));
+	}
+
+	@Test
+	void omitsDependWhenNoDependencies() {
+		final ServiceSpec spec = ServiceSpec.builder()
+				.id("com.example.bare").command("/bin/true").asSystemDaemon().build();
+		final String script = writer.render(spec, "default", "/run/com.example.bare.pid");
+		// An empty `depend() {}` is a shell syntax error — it must be omitted entirely.
+		assertFalse(script.contains("depend()"));
+	}
+
+	@Test
+	void emitsDependWhenDependenciesGiven() {
+		final ServiceSpec spec = ServiceSpec.builder()
+				.id("com.example.net").command("/bin/true").asSystemDaemon()
+				.openrc(OpenRcOptions.builder().need("net").build()).build();
+		final String script = writer.render(spec, "default", "/run/com.example.net.pid");
+		assertTrue(script.contains("depend() {"));
+		assertTrue(script.contains("\tneed net"));
 	}
 
 	@Test

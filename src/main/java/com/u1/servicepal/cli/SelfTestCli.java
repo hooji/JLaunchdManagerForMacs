@@ -79,7 +79,7 @@ public final class SelfTestCli {
 
 			final ServiceSpec back = mgr.read(ID);
 			failures += check("read round-trips command",
-					back != null && back.command().contains("/bin/sleep"));
+					back != null && back.command().equals(spec.command()));
 		} catch (final Throwable t) {
 			System.out.println("SELFTEST ERROR: " + t);
 			t.printStackTrace(System.out);

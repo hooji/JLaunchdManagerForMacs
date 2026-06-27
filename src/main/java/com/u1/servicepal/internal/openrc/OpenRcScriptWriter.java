@@ -71,15 +71,17 @@ public final class OpenRcScriptWriter {
 			sb.append("error_log=").append(quote(spec.stderr().toString())).append('\n');
 		}
 
-		sb.append('\n');
-		sb.append("depend() {\n");
+		// Only emit depend() when there are dependencies: an empty `depend() {}` body is a POSIX
+		// shell syntax error (openrc-run sources the script), and depend() is optional anyway.
 		final OpenRcOptions opts = spec.openrc();
-		if (opts != null) {
+		if (opts != null && !opts.need().isEmpty()) {
+			sb.append('\n');
+			sb.append("depend() {\n");
 			for (final String need : opts.need()) {
 				sb.append("\tneed ").append(need).append('\n');
 			}
+			sb.append("}\n");
 		}
-		sb.append("}\n");
 		return sb.toString();
 	}
 

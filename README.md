@@ -14,15 +14,17 @@ in progress, one platform backend at a time:
 
 | Area | macOS | systemd | OpenRC | Windows |
 |------|:----:|:-------:|:------:|:-------:|
-| **Discovery / inspection** (`list`, `read`, `status`) | ✅ | ✅ | ✅ | ⬜ |
-| **Mutation** (`install`, `start`, `enable`, …) | ✅ | ✅ | ✅ | ⬜ |
+| **Discovery / inspection** (`list`, `read`, `status`) | ✅ | ✅ | ✅ | ✅ |
+| **Mutation** (`install`, `start`, `enable`, …) | ✅ | ✅ | ✅ | ✅ |
 
-The current build implements the **macOS launchd**, **Linux systemd**, and **Linux
-OpenRC** backends end-to-end — discovery, inspection, and mutation (`install`/`uninstall`,
-`start`/`stop`/`restart`, `enable`/`disable`) — plus the full cross-platform model,
-platform detection, and two CLIs. The remaining backend (**Windows**) reports its
-platform and capabilities but throws a clear `UnsupportedOperationException` on use until
-implemented.
+All four backends are implemented end-to-end — discovery, inspection, and mutation
+(`install`/`uninstall`, `start`/`stop`/`restart`, `enable`/`disable`) — behind one
+cross-platform model, with runtime platform detection and two CLIs. On Windows, a daemon
+runs as a real service via a bundled **pure-Java FFM service host** (which speaks the SCM
+control protocol — a plain `java -jar` cannot, failing with error 1053), and a *scheduled*
+job is routed to **Task Scheduler** instead. The macOS/systemd/OpenRC paths are validated
+on real systems by the CI probe; the Windows FFM host is validated by the probe's
+`SelfTestCli` on the `windows-latest` runner.
 
 Known limitations:
 
@@ -31,6 +33,10 @@ Known limitations:
 - OpenRC is **SYSTEM_WIDE-only** (no per-user services) and has no native scheduler, so it
   reports `perUserInstall`/`calendar`/`interval` as `false`; supervised restart maps to
   `supervise-daemon`, which respawns on any exit (ON_FAILURE and ALWAYS coincide).
+- Windows is **SYSTEM_WIDE-only** in v1 (`perUserInstall` is `false`); discovery is
+  scoped to the services ServicePal created (machine-wide enumeration of third-party
+  services is a follow-up). Per-platform extras like per-user services and WinSW hosting
+  are on the roadmap.
 
 ## Build & test
 
@@ -38,9 +44,11 @@ Known limitations:
 mvn verify
 ```
 
-Requires JDK 21+ for now (the implemented macOS/systemd paths are subprocess + file I/O,
-no FFM). The baseline rises to **JDK 25** when the Windows FFM service host lands (FFM is
-final in JDK 22; 25 is the first LTS with it final).
+Requires **JDK 25** (the Windows backend uses the Foreign Function & Memory API, final in
+JDK 22; 25 is the first LTS with it final). The macOS/systemd/OpenRC code stays
+source-compatible with JDK 21, so a lower-JDK Mac/Linux-only build remains a roadmap item.
+Consuming apps on Windows must grant native access (`--enable-native-access=ALL-UNNAMED`);
+the runnable jar already declares it in its manifest.
 
 ## Try the discovery CLI
 
@@ -57,8 +65,8 @@ java -jar target/servicepal.jar --managed  # only services ServicePal created
   enriched with live state from `systemctl show`.
 - On **Linux/OpenRC** it enumerates init scripts in `/etc/init.d`, enriched with live state
   from `rc-service <name> status`.
-- On platforms whose backend is not implemented yet (Windows) it prints a friendly
-  "coming next" note and exits 0.
+- On **Windows** it lists the services ServicePal created (from the sidecars in
+  `%ProgramData%\ServicePal`), enriched with live state from `QueryServiceStatusEx`.
 
 A second CLI, `com.u1.servicepal.cli.SelfTestCli`, runs a real install→start→uninstall
 lifecycle against the live OS; the CI probe uses it to validate mutation on real systems.
