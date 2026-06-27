@@ -1,13 +1,12 @@
 name: Probe (cross-platform manual run)
 
-# Not tests — these are exploratory probes that build the jar and RUN the discovery
-# CLI on each platform so we can see how the code behaves on real systems and iterate.
-# Triggered manually (workflow_dispatch); also runs on pushes to the active dev branch
-# so changes can be validated without waiting for a merge (remove that trigger later).
+# Not tests — these are exploratory probes that build the jar and RUN the discovery CLI and the
+# self-test on each platform, with extra debug dumps (the raw launchctl print format, the Windows
+# FFM host log) that gating CI doesn't emit. Real, GATING lifecycle validation now lives in
+# ci.yml (it runs the same install -> start -> uninstall on every push and fails on error), so
+# this probe is MANUAL-ONLY (workflow_dispatch) for on-demand exploration and debugging.
 on:
   workflow_dispatch:
-  push:
-    branches: [claude/java-launchd-api-design-zkcty4, claude/project-familiarization-axnrtj, claude/windows-incremental-improvements]
 
 permissions:
   contents: read
