@@ -32,8 +32,10 @@ public final class SelfTestCli {
 		final boolean root = "root".equals(System.getProperty("user.name"));
 		final ServiceSpec.Builder builder = ServiceSpec.builder()
 				.id(ID)
-				.command("/bin/sleep", "120")
 				.autoStart(true);
+		// A long-running command with no console (the supervisor keeps it alive). /bin/sleep on
+		// Unix; ping on Windows (sleep doesn't exist there).
+		String[] command = {"/bin/sleep", "120"};
 		if (platform == Platform.MACOS_LAUNCHD) {
 			builder.asCurrentUser();   // a per-user launchd agent; no root needed
 		} else if (platform == Platform.LINUX_SYSTEMD) {
@@ -50,11 +52,17 @@ public final class SelfTestCli {
 				return;
 			}
 			builder.asSystemDaemon();   // OpenRC is SYSTEM_WIDE only
+		} else if (platform == Platform.WINDOWS) {
+			// SYSTEM_WIDE service supervised by the bundled FFM ServiceHost. Needs Administrator
+			// (CreateService) — the windows-latest runner is admin.
+			command = new String[] {"ping", "-n", "300", "127.0.0.1"};
+			builder.asSystemDaemon();
 		} else {
 			System.out.println("SELFTEST SKIP: mutation not implemented for " + platform);
 			return;
 		}
-		final ServiceSpec spec = builder.build();
+		final String program = command[0];
+		final ServiceSpec spec = builder.command(command).build();
 
 		int failures = 0;
 		try {
@@ -63,7 +71,13 @@ public final class SelfTestCli {
 			}
 			mgr.installEnableStart(spec);
 
-			final ServiceStatus st = mgr.status(ID);
+			// Allow a moment for the service to come up (the Windows FFM host has to launch a JVM,
+			// register with the SCM, and report RUNNING) before asserting state.
+			ServiceStatus st = mgr.status(ID);
+			for (int i = 0; i < 30 && st.state() != RunState.RUNNING; i++) {
+				Thread.sleep(500);
+				st = mgr.status(ID);
+			}
 			System.out.println("status: installed=" + st.installed() + " managed=" + st.managed()
 					+ " state=" + st.state() + " pid=" + st.pid());
 			failures += check("installed", st.installed());
@@ -79,7 +93,7 @@ public final class SelfTestCli {
 
 			final ServiceSpec back = mgr.read(ID);
 			failures += check("read round-trips command",
-					back != null && back.command().contains("/bin/sleep"));
+					back != null && back.command().contains(program));
 		} catch (final Throwable t) {
 			System.out.println("SELFTEST ERROR: " + t);
 			t.printStackTrace(System.out);

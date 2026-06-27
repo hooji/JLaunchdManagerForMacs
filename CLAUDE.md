@@ -17,7 +17,7 @@ Per platform, the library:
 
 - **macOS** — writes `.plist` files (file I/O); drives `launchctl` (subprocess).
 - **Linux/systemd** — writes `.service`/`.timer` INI units (file I/O); drives `systemctl`.
-- **Linux/non-systemd** — (later) generates init scripts; drives `rc-service`/`sv`/`service`.
+- **Linux/OpenRC** — generates `/etc/init.d` scripts (file I/O); drives `rc-service`/`rc-update`.
 - **Windows** — SCM via `advapi32` (Java FFM) and/or `sc.exe`; Task Scheduler via
   `schtasks`/PowerShell; **needs a service-host shim to run arbitrary commands as a
   service** (see the big quirk below).
@@ -25,28 +25,31 @@ Per platform, the library:
   it pays off (Windows SCM); everything else is subprocess. **All** native access sits
   behind stubbable interfaces so the library unit-tests off-platform.
 
-**Status:** _Research complete (step 1). Design phase (step 2) — not started._
-The single-platform API sketch near the bottom predates the cross-platform expansion
-and is **superseded** as the public design; it survives only as the macOS-backend shape.
-No implementation code has been written yet. Do not start implementing until the
-cross-platform API is designed and approved.
+**Status:** _Steps 1–2 done; step 4 complete — **all four backends implemented** (macOS,
+systemd, OpenRC, Windows). Step 5 (one facade) is essentially already true._ The single-platform
+API sketch near the bottom predates the cross-platform expansion and is **superseded** as the
+public design; it survives only as the macOS-backend shape.
 
 ## Project plan (owner's 5 steps)
 
 1. ✅ **Research all platforms & document quirks** — done. See `docs/research/`.
 2. ✅ **Design an overarching API** that works across all platforms — done & approved.
    See `docs/design/api-design.md`.
-3. ⏳ **Design clean interop with each platform's native facilities** — underway alongside step 4.
-4. ⏳ **Implement per-platform modules** (macOS → systemd → OpenRC → Windows) — **macOS,
-   Linux/systemd, and Linux/OpenRC complete** (discovery + inspection + mutation, see below);
-   **Windows is the last remaining backend**.
-5. ⬜ Assemble the unified library behind one facade.
+3. ✅ **Design clean interop with each platform's native facilities** — done (renderers + native
+   seams for all four platforms).
+4. ✅ **Implement per-platform modules** (macOS → systemd → OpenRC → Windows) — **all four
+   complete** (discovery + inspection + mutation, see below).
+5. ✅ **Assemble the unified library behind one facade** — done: the `ServiceManager` facade +
+   `DefaultServiceManager` are platform-agnostic and dispatch to all four backends. Remaining
+   work is refinement (systemd `.timer`, Windows per-user, lower-JDK build) — see `docs/ROADMAP.md`.
 
 ## Implementation status (live)
 
-- **Build:** Maven, `mvn verify`. Compiler `release` is **21 for now** (the implemented
-  macOS/Linux paths are subprocess + file I/O, no FFM) — rises to **JDK 25** when the Windows
-  FFM service host lands (see `pom.xml` comment). Matches the roadmap's lower-JDK Mac/Linux build.
+- **Build:** Maven, `mvn verify`. Compiler `release` is **25** (the Windows FFM service host uses
+  `java.lang.foreign`, final in JDK 22; 25 is the first LTS with it final). The macOS/systemd/OpenRC
+  paths are 21-compatible (subprocess + file I/O), but the single jar targets 25. Apps using the
+  Windows backend must launch with `--enable-native-access=ALL-UNNAMED` (JEP 472). A lower-JDK
+  Mac/Linux-only build remains a roadmap item.
 - **Done:** full public model (`ServiceSpec`/`RunAs`/`Schedule`/`ServiceStatus`/`Capabilities`/
   exceptions), `ServiceManager` facade, platform detection, and the **complete macOS launchd
   backend** — discovery/inspection (`list`/`listManaged`/`read`/`readNative`/`status`/
@@ -71,12 +74,25 @@ cross-platform API is designed and approved.
   `ON_FAILURE`/`ALWAYS` = `supervise-daemon` (`ALWAYS` sets `respawn_max=0`). `enabled` is read
   from runlevel symlinks under `/etc/runlevels`; pid/exit are left null (`structuredStatus=false`).
   Seam: `RcService` (+`DefaultRcService` subprocess); renderer/parser `RcScriptWriter`/`RcScriptReader`.
-- **67 unit tests**, all platform-independent (stubbed `CommandRunner`/`Launchctl`/`Systemctl`/
-  `RcService`, temp-dir definitions). GitHub Actions CI on ubuntu/macos/windows; the probe runs a
-  real `systemctl` lifecycle (sudo) on the ubuntu runner, a real launchd lifecycle on macOS, and a
-  real OpenRC lifecycle in an Alpine/OpenRC container.
-- **Not yet:** the **Windows** backend (an `UnimplementedBackend` reports platform + intended
-  capabilities but throws on use); systemd `.timer` scheduling.
+- **Done — Windows backend** (`internal/windows`): routes by job shape (tension T2). **Daemons →
+  a service** registered with the SCM whose `binPath` is the bundled **pure-Java FFM `ServiceHost`**
+  (a runnable class that speaks the SCM protocol via FFM upcalls — `StartServiceCtrlDispatcherW` →
+  `ServiceMain`, `RegisterServiceCtrlHandlerExW` → handler, `SetServiceStatus` — and supervises the
+  real command as a child, implementing `RestartPolicy` as a respawn loop). **Scheduled specs →
+  Task Scheduler** (`schtasks`, any command, no protocol). A sidecar JSON in
+  `%ProgramData%\ServicePal\<id>.json` is the source of truth for `read()`/managed-marker and what
+  the host reads at runtime. SCM ops via FFM `advapi32` (`FfmScm`: create/config/start/stop/delete/
+  `QueryServiceStatusEx` → structured status+pid+exit); the `Scm` + `TaskScheduler` seams stub on
+  Linux/macOS. **SYSTEM_WIDE only in v1** (`perUserInstall=false`). Needs Administrator;
+  `--enable-native-access=ALL-UNNAMED`. Confined hand-written JSON in `Json` (no new dep).
+- **92 unit tests**, all platform-independent (stubbed `CommandRunner`/`Launchctl`/`Systemctl`/
+  `RcService`/`Scm`/`TaskScheduler`, temp-dir definitions). GitHub Actions CI on ubuntu/macos/windows;
+  the probe runs a real `systemctl` lifecycle (sudo) on ubuntu, a real launchd lifecycle on macOS, a
+  real OpenRC lifecycle in an Alpine/OpenRC container, and a real Windows SCM lifecycle (the FFM host
+  doing install→start→`RUNNING`+pid→uninstall) on `windows-latest`.
+- **Deferred (roadmap):** systemd `.timer` scheduling; Windows per-user services / named-user
+  passwords; a lower-JDK Mac/Linux-only build. The `UnimplementedBackend` is now an unreachable
+  safety net (all four platforms are wired).
 - **Refinements made during impl:**
   - `ServiceStatus` gained an `installation` field (handy for discovery grouping).
   - Discovery returns a **`Discovery(services, unreadable)`** — root-only/malformed plists are
@@ -110,13 +126,20 @@ cross-platform API is designed and approved.
 - `docs/ROADMAP.md` — deferred items (WinSW alt host, lower-JDK Mac/Linux build, SysV/runit,
   cron fallback, D-Bus).
 
-## ▶ Next session: implement **Windows** (the big remaining job)
+## ▶ Next session: refinements (all four backends are done)
 
-**Windows is the only remaining backend** (large — FFM service host + Task Scheduler; the pivotal
-SCM quirk). OpenRC is now complete; systemd `.timer` scheduling is still deferred (small, optional).
-Follow `docs/design/windows-implementation-plan.md` step by step, mirroring the existing
-`internal/{macos,systemd,openrc}` backends, and validate with the CI probe's `SelfTestCli` on the
-`windows-latest` runner (push to branch → probe → iterate → open the PR only once green).
+All four backends are implemented and unit-tested; the core is complete. Remaining work is
+**refinement, not new platforms** — validate on real systems via the probe, then pick from the
+roadmap:
+- **Validate Windows on the probe.** The FFM `ServiceHost`/`FfmScm` can only be exercised on the
+  `windows-latest` runner (admin). Watch the `SELFTEST PASS/FAIL` line; the host writes a debug
+  log to `%ProgramData%\ServicePal\<id>.host.log`. Iterate (push to branch → probe). Likely
+  fiddly bits: SCM struct offsets, upcall lifetime, error 1053 (host slow to `SetServiceStatus`).
+- **systemd `.timer`** scheduling (flip `calendar`/`interval` capabilities true; render `.timer`
+  + oneshot `.service`).
+- **Windows per-user** services / named-user passwords; a **lower-JDK Mac/Linux-only** build.
+See `docs/ROADMAP.md`. The Windows build plan is preserved in
+`docs/design/windows-implementation-plan.md` (now an as-built reference).
 
 ## Owner-approved decisions (step 2)
 

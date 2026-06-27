@@ -11,6 +11,7 @@ import com.u1.servicepal.WrongPlatformOptionsException;
 import com.u1.servicepal.internal.macos.LaunchdBackend;
 import com.u1.servicepal.internal.openrc.OpenRcBackend;
 import com.u1.servicepal.internal.systemd.SystemdBackend;
+import com.u1.servicepal.internal.windows.WindowsBackend;
 import com.u1.servicepal.model.CalendarSchedule;
 import com.u1.servicepal.model.Discovery;
 import com.u1.servicepal.model.IntervalSchedule;
@@ -20,8 +21,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Wires a {@link Backend} to the {@link ServiceManager} facade. Discovery/inspection is fully
- * implemented; mutation throws {@link UnsupportedOperationException} until step 4.
+ * Wires a {@link Backend} to the {@link ServiceManager} facade — platform-agnostic orchestration
+ * (auto-resolution, capability/option pre-flight validation) over whichever backend the detected
+ * platform selects. All four backends (macOS, systemd, OpenRC, Windows) are implemented.
  */
 public final class DefaultServiceManager implements ServiceManager {
 
@@ -40,6 +42,9 @@ public final class DefaultServiceManager implements ServiceManager {
 		}
 		if (platform == Platform.LINUX_OPENRC) {
 			return new DefaultServiceManager(OpenRcBackend.createDefault());
+		}
+		if (platform == Platform.WINDOWS) {
+			return new DefaultServiceManager(WindowsBackend.createDefault());
 		}
 		return new DefaultServiceManager(new UnimplementedBackend(platform));
 	}

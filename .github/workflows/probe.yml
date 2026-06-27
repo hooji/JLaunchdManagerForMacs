@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: maven
 
       - name: Build jar
@@ -37,11 +37,23 @@ jobs:
         run: java -jar target/servicepal.jar || true
 
       # Real mutation lifecycle (install -> start -> inspect -> uninstall) of a throwaway
-      # PER_USER agent. macOS does the real work; other platforms print SKIP. Non-fatal so the
-      # probe stays informational — read the SELFTEST PASS/FAIL line in the log.
+      # service. macOS does the real work; Linux non-root prints SKIP. Non-fatal so the probe
+      # stays informational — read the SELFTEST PASS/FAIL line in the log. (Windows has its own
+      # step below, because the FFM service host needs --enable-native-access.)
       - name: Probe — mutation self-test
+        if: runner.os != 'Windows'
         shell: bash
         run: java -cp target/servicepal.jar com.u1.servicepal.cli.SelfTestCli || true
+
+      # Windows: the bundled pure-Java FFM ServiceHost speaks the SCM protocol, so the runner
+      # actually installs -> starts -> RUNNING(+pid) -> uninstalls a real service. windows-latest
+      # runs as an administrator, which CreateService requires. --enable-native-access silences
+      # the JEP 472 restricted-method warning for our FFM calls (and the host inherits the flag
+      # in its own binPath).
+      - name: Probe — mutation self-test (Windows, admin + native access)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: java --enable-native-access=ALL-UNNAMED -cp target/servicepal.jar com.u1.servicepal.cli.SelfTestCli || true
 
       # systemd installs a system-wide unit, which needs root — run the self-test under sudo
       # on Linux (the ubuntu runner is systemd). macOS already covered by the non-sudo step.
@@ -83,7 +95,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: maven
 
       - name: Build jar (on host)
@@ -91,8 +103,14 @@ jobs:
 
       - name: Probe inside Alpine + OpenRC
         run: |
+          # The jar targets JDK 25 (FFM). Alpine's packaged JDK may lag, so fetch the Temurin 25
+          # musl build for a reliable 25 runtime inside the container.
           docker run --rm -v "$PWD:/w" -w /w alpine:latest sh -c '
-            apk add --no-cache openjdk21-jre openrc >/dev/null &&
+            apk add --no-cache openrc curl >/dev/null &&
+            curl -fsSL -o /tmp/jdk.tar.gz "https://api.adoptium.net/v3/binary/latest/25/ga/alpine-linux/x64/jdk/hotspot/normal/eclipse" &&
+            mkdir -p /opt/jdk && tar xzf /tmp/jdk.tar.gz -C /opt/jdk --strip-components=1 &&
+            export PATH=/opt/jdk/bin:$PATH &&
+            java -version &&
             echo "rc-service: $(command -v rc-service)" &&
             echo "===== discovery CLI =====" &&
             java -jar target/servicepal.jar || true &&

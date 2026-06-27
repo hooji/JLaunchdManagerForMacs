@@ -14,9 +14,9 @@ import java.util.List;
  * {@link AmbiguousServiceException} if an id exists in both — pass an explicit
  * {@code Installation} to disambiguate.
  *
- * <p><strong>Build status:</strong> discovery and inspection (list / read / status) are fully
- * implemented for macOS. Mutation (install/start/stop/…) and the systemd/OpenRC/Windows
- * backends throw {@link UnsupportedOperationException} for now (steps 4–5).
+ * <p><strong>Build status:</strong> all four platforms are implemented end-to-end (discovery,
+ * inspection, and mutation) — macOS launchd, Linux systemd, Linux OpenRC, and Windows (SCM via the
+ * bundled FFM service host + Task Scheduler for scheduled jobs).
  */
 public interface ServiceManager {
 

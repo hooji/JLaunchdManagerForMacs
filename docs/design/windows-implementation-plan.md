@@ -1,9 +1,15 @@
-# Windows implementation plan — handoff for the next session
+# Windows implementation plan — (BUILT) as-built reference
 
-This is the detailed, actionable plan for building the **Windows** backend. macOS (launchd)
-and Linux (systemd) are already implemented end-to-end and **validated on real systems via the
-CI probe**; Windows and OpenRC remain. Windows is the biggest job (FFM + the SCM protocol),
-hence this dedicated plan.
+> **Status: implemented.** The Windows backend described below now exists under
+> `src/main/java/com/u1/servicepal/internal/windows/` and is unit-tested off-Windows with stubbed
+> `Scm`/`TaskScheduler`. The real FFM paths (`FfmScm`, `ServiceHost`) are validated on the
+> `windows-latest` probe. The plan is kept as a design/rationale reference; a few names settled
+> slightly differently than sketched (e.g. `SidecarWriter`/`SidecarReader`, `FfmScm`,
+> `SchtasksScheduler`, `TaskXmlWriter`, host class `internal.windows.ServiceHost`).
+
+This is the detailed, actionable plan that guided building the **Windows** backend. macOS
+(launchd), Linux (systemd), and Linux (OpenRC) were implemented first; Windows is the biggest job
+(FFM + the SCM protocol), hence this dedicated plan.
 
 **Read first:** `docs/research/windows-services.md` (SCM + Task Scheduler + the quirk),
 `docs/research/java-ffm-native-access.md` (FFM maturity), `docs/design/api-design.md` §10 (the

@@ -9,9 +9,10 @@ import com.u1.servicepal.model.ServiceStatus;
 import java.util.List;
 
 /**
- * Placeholder for platforms whose backend isn't written yet (Windows). It reports the platform
- * and its <em>intended</em> capabilities, but throws on any actual operation. macOS, Linux/systemd
- * and Linux/OpenRC all have real backends; only Windows still routes here.
+ * Defensive fallback for a {@link Platform} with no wired backend. All four current platforms
+ * (macOS, systemd, OpenRC, Windows) have real backends, so this is now unreachable from
+ * {@link DefaultServiceManager#create} — it remains only as a safety net (and a source of each
+ * platform's intended {@link Capabilities}) should a new platform be added before its backend.
  */
 public final class UnimplementedBackend implements Backend {
 

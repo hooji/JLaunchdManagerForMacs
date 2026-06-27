@@ -14,7 +14,12 @@
 >   SYSTEM_WIDE only (`perUserInstall=false`); no native scheduler (`calendar`/`interval` false).
 >   Restart policy → supervisor: `NEVER` = backgrounded `start-stop-daemon`, `ON_FAILURE`/`ALWAYS`
 >   = `supervise-daemon`.
-> - ⬜ **Windows** — pending; the biggest job. **Detailed build plan: `windows-implementation-plan.md`.**
+> - ✅ **Windows** — discovery + inspection + mutation. Routes by job shape: daemons → an SCM
+>   service whose `binPath` is the bundled **pure-Java FFM `ServiceHost`** (speaks the SCM protocol
+>   via upcalls, supervises the real command); scheduled specs → **Task Scheduler** (`schtasks`). A
+>   sidecar JSON (`%ProgramData%\ServicePal\<id>.json`) backs `read()`/the managed marker. SCM via
+>   FFM `advapi32`; structured status via `QueryServiceStatusEx`. **SYSTEM_WIDE only in v1.** See
+>   `windows-implementation-plan.md` (now an as-built reference).
 >
 > The design proved out essentially unchanged. The only notable in-flight refinement: discovery
 > returns `Discovery(services, unreadable)` (definition files we can't read are reported by name,

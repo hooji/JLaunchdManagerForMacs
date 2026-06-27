@@ -36,6 +36,9 @@ parking lot for decisions already discussed.
 
 - **Capability fallbacks** instead of fail-fast where it's clearly useful — e.g. calendar
   schedules on OpenRC mapped to a **cron** entry (opt-in, never silent).
+- **systemd `.timer` scheduling.** v1 systemd ships **services only**; calendar/interval
+  schedules fail fast there (`calendar`/`interval` capabilities are false). Add a `.timer` +
+  oneshot `.service` renderer and flip those capabilities true.
 - **SysV init** and **runit** backends (Devuan, Void, older systems). Lower priority than
   systemd+OpenRC; OpenRC already covers the high-value Alpine/container case.
 - Init-less container detection guidance (PID 1 is the app) — clear error + docs today;
@@ -54,6 +57,7 @@ parking lot for decisions already discussed.
 
 - D-Bus/`sd-bus` (via FFM) for event-driven systemd status streaming, if a consumer needs
   push status instead of polling `systemctl show`.
-- `advapi32` FFM as the *primary* Windows status/config path (beyond the host) if `sc` parsing
-  proves insufficient.
+- Windows `EnumServicesStatusExW` so `list()` enumerates *all* SCM services (v1 discovery is
+  scoped to the services/tasks ServicePal has sidecars for), and `sc.exe`-subprocess fallback for
+  a JDK-21 "Windows-lite" build without FFM. (FFM `advapi32` is already the primary path.)
 - Lossless spec round-tripping (`read()`), where the native format allows it.
