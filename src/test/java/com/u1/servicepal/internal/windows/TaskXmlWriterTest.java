@@ -49,6 +49,19 @@ class TaskXmlWriterTest {
 	}
 
 	@Test
+	void quotesArgumentsContainingSpaces() {
+		final ServiceSpec spec = ServiceSpec.builder()
+				.id("com.example.job")
+				.command("C:\\app\\job.exe", "--path", "C:\\Program Files\\x", "--flag")
+				.asSystemDaemon()
+				.schedule(Schedule.dailyAt(1, 0))
+				.build();
+		final String xml = writer.render(spec);
+		// The space-containing arg is wrapped in quotes (then XML-escaped); the bare one is not.
+		assertTrue(xml.contains("--path &quot;C:\\Program Files\\x&quot; --flag"));
+	}
+
+	@Test
 	void namedUserPrincipalUsesPasswordLogon() {
 		final String xml = writer.render(
 				base().asUser("svc-acme").schedule(Schedule.dailyAt(1, 0)).build());

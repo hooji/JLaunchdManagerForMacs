@@ -13,6 +13,7 @@ import com.u1.servicepal.model.RunState;
 import com.u1.servicepal.model.Schedule;
 import com.u1.servicepal.model.ServiceSpec;
 import com.u1.servicepal.model.ServiceStatus;
+import com.u1.servicepal.model.options.WindowsOptions;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -154,6 +155,53 @@ class WindowsBackendTest {
 	void readUnknownReturnsNull() {
 		assertNull(backend.read("com.nope", Installation.SYSTEM_WIDE));
 		assertNull(backend.status("com.nope", Installation.SYSTEM_WIDE));
+	}
+
+	@Test
+	void upsertReconcilesAccountStartTypeAndDisplayNameInPlace() {
+		backend.install(daemon(), false);   // fresh create (LocalSystem)
+		// Re-install the same id as a different account + display name.
+		final ServiceSpec changed = daemon().toBuilder()
+				.displayName("Renamed").asUser("svc-acme").build();
+		backend.install(changed, false);
+
+		assertTrue(scm.calls.contains("updateConfig " + ID), "upsert reconciles in place");
+		assertFalse(scm.calls.contains("delete " + ID), "no delete+recreate race");
+		assertEquals(".\\svc-acme", scm.lastAccount);   // qualified to the local machine
+		assertEquals("Renamed", scm.lastDisplayName);
+		assertEquals(ServiceStartType.AUTO, scm.lastStartType);   // autoStart=true
+	}
+
+	@Test
+	void qualifiesBareNamedUserAccountToLocalMachine() {
+		backend.install(daemon().toBuilder().asUser("svc-acme").build(), false);
+		assertEquals(".\\svc-acme", scm.lastAccount);
+	}
+
+	@Test
+	void leavesDomainQualifiedAccountAsGiven() {
+		backend.install(daemon().toBuilder().asUser("CORP\\svc").build(), false);
+		assertEquals("CORP\\svc", scm.lastAccount);
+	}
+
+	@Test
+	void windowsOptionsAccountOverridesDerivedAccount() {
+		final ServiceSpec spec = daemon().toBuilder()
+				.windows(WindowsOptions.builder().account("NT AUTHORITY\\LocalService").build())
+				.build();
+		backend.install(spec, false);
+		assertEquals("NT AUTHORITY\\LocalService", scm.lastAccount);
+	}
+
+	@Test
+	void delayedAutoStartTypeIsRouted() {
+		final ServiceSpec spec = daemon().toBuilder()
+				.windows(WindowsOptions.builder()
+						.startType(WindowsOptions.StartType.DELAYED_AUTO).build())
+				.build();
+		backend.install(spec, false);
+		assertEquals(ServiceStartType.AUTO_DELAYED, scm.lastStartType);
+		assertTrue(scm.lastStartType.delayed());
 	}
 
 	@Test

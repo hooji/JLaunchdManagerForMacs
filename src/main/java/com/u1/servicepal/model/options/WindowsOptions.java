@@ -13,11 +13,13 @@ public final class WindowsOptions {
 
 	private final StartType startType;
 	private final List<String> dependsOn;
+	private final String account;
 	private final String password;
 
 	private WindowsOptions(final Builder b) {
 		this.startType = b.startType;
 		this.dependsOn = List.copyOf(b.dependsOn);
+		this.account = b.account;
 		this.password = b.password;
 	}
 
@@ -27,6 +29,16 @@ public final class WindowsOptions {
 
 	public List<String> dependsOn() {
 		return dependsOn;
+	}
+
+	/**
+	 * The SCM logon account ({@code lpServiceStartName}), e.g. {@code "NT AUTHORITY\\LocalService"}
+	 * or {@code "NT AUTHORITY\\NetworkService"}. Nullable; when null the account is derived from
+	 * {@code RunAs} (system daemon &rarr; LocalSystem, named user &rarr; that user). An explicit
+	 * value here overrides that derivation.
+	 */
+	public String account() {
+		return account;
 	}
 
 	/**
@@ -45,6 +57,7 @@ public final class WindowsOptions {
 
 		private StartType startType;
 		private final List<String> dependsOn = new ArrayList<>();
+		private String account;
 		private String password;
 
 		public Builder startType(final StartType value) {
@@ -54,6 +67,11 @@ public final class WindowsOptions {
 
 		public Builder dependsOn(final String service) {
 			this.dependsOn.add(service);
+			return this;
+		}
+
+		public Builder account(final String value) {
+			this.account = value;
 			return this;
 		}
 

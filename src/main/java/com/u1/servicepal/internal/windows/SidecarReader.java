@@ -1,12 +1,15 @@
 package com.u1.servicepal.internal.windows;
 
 import com.u1.servicepal.DefinitionIOException;
+import com.u1.servicepal.model.CalendarSpec;
 import com.u1.servicepal.model.RestartPolicy;
 import com.u1.servicepal.model.RunAs;
+import com.u1.servicepal.model.Schedule;
 import com.u1.servicepal.model.ServiceSpec;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -97,7 +100,55 @@ public final class SidecarReader {
 		} else {
 			b.asCurrentUser();
 		}
+
+		final Schedule schedule = parseSchedule(sidecar.get("schedule"));
+		if (schedule != null) {
+			b.schedule(schedule);
+		}
 		return b.build();
+	}
+
+	/** Reconstruct a {@link Schedule} from the sidecar (counterpart to the writer's scheduleMap). */
+	private static Schedule parseSchedule(final Object value) {
+		if (!(value instanceof Map)) {
+			return null;
+		}
+		final Map<?, ?> m = (Map<?, ?>) value;
+		final String type = str(m.get("type"));
+		if ("interval".equals(type)) {
+			final Long seconds = parseLong(str(m.get("periodSeconds")));
+			return (seconds == null || seconds <= 0) ? null
+					: Schedule.every(Duration.ofSeconds(seconds));
+		}
+		if ("calendar".equals(type)) {
+			return Schedule.calendar(new CalendarSpec(
+					parseInt(str(m.get("minute"))), parseInt(str(m.get("hour"))),
+					parseInt(str(m.get("dayOfMonth"))), parseInt(str(m.get("month"))),
+					parseInt(str(m.get("dayOfWeek")))));
+		}
+		return null;
+	}
+
+	private static Integer parseInt(final String value) {
+		if (value == null) {
+			return null;
+		}
+		try {
+			return Integer.valueOf(value);
+		} catch (final NumberFormatException e) {
+			return null;
+		}
+	}
+
+	private static Long parseLong(final String value) {
+		if (value == null) {
+			return null;
+		}
+		try {
+			return Long.valueOf(value);
+		} catch (final NumberFormatException e) {
+			return null;
+		}
 	}
 
 	private static RestartPolicy parseRestart(final String value) {
