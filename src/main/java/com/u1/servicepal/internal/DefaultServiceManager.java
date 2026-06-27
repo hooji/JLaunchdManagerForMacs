@@ -9,7 +9,9 @@ import com.u1.servicepal.ServiceNotFoundException;
 import com.u1.servicepal.UnsupportedFeatureException;
 import com.u1.servicepal.WrongPlatformOptionsException;
 import com.u1.servicepal.internal.macos.LaunchdBackend;
+import com.u1.servicepal.internal.openrc.OpenRcBackend;
 import com.u1.servicepal.internal.systemd.SystemdBackend;
+import com.u1.servicepal.internal.windows.WindowsBackend;
 import com.u1.servicepal.model.CalendarSchedule;
 import com.u1.servicepal.model.Discovery;
 import com.u1.servicepal.model.IntervalSchedule;
@@ -19,8 +21,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Wires a {@link Backend} to the {@link ServiceManager} facade. Discovery/inspection is fully
- * implemented; mutation throws {@link UnsupportedOperationException} until step 4.
+ * Wires a {@link Backend} to the {@link ServiceManager} facade: auto-resolves the
+ * {@link Installation} for by-id operations, runs install-time validation (foreign option
+ * blocks and capability gaps), and delegates discovery, inspection, and mutation to the
+ * backend. Backends for not-yet-implemented platforms throw {@link UnsupportedOperationException}.
  */
 public final class DefaultServiceManager implements ServiceManager {
 
@@ -36,6 +40,12 @@ public final class DefaultServiceManager implements ServiceManager {
 		}
 		if (platform == Platform.LINUX_SYSTEMD) {
 			return new DefaultServiceManager(SystemdBackend.createDefault());
+		}
+		if (platform == Platform.LINUX_OPENRC) {
+			return new DefaultServiceManager(OpenRcBackend.createDefault());
+		}
+		if (platform == Platform.WINDOWS) {
+			return new DefaultServiceManager(WindowsBackend.createDefault());
 		}
 		return new DefaultServiceManager(new UnimplementedBackend(platform));
 	}

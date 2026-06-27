@@ -13,10 +13,12 @@ public final class WindowsOptions {
 
 	private final StartType startType;
 	private final List<String> dependsOn;
+	private final String password;
 
 	private WindowsOptions(final Builder b) {
 		this.startType = b.startType;
 		this.dependsOn = List.copyOf(b.dependsOn);
+		this.password = b.password;
 	}
 
 	public StartType startType() {
@@ -27,6 +29,14 @@ public final class WindowsOptions {
 		return dependsOn;
 	}
 
+	/**
+	 * Password for a named-user service/task ({@code asUser(...)}); {@code null} for
+	 * {@code LocalSystem} and virtual/managed accounts. Nullable.
+	 */
+	public String password() {
+		return password;
+	}
+
 	public static Builder builder() {
 		return new Builder();
 	}
@@ -35,6 +45,7 @@ public final class WindowsOptions {
 
 		private StartType startType;
 		private final List<String> dependsOn = new ArrayList<>();
+		private String password;
 
 		public Builder startType(final StartType value) {
 			this.startType = value;
@@ -43,6 +54,11 @@ public final class WindowsOptions {
 
 		public Builder dependsOn(final String service) {
 			this.dependsOn.add(service);
+			return this;
+		}
+
+		public Builder password(final String value) {
+			this.password = value;
 			return this;
 		}
 

@@ -17,20 +17,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Baseline is JDK 21 for now: the implemented backends (macOS launchd discovery)
-      # are pure subprocess + file I/O with no FFM. Bump to 25 when the Windows FFM
-      # service host lands (FFM is final in 22; 25 is the first LTS with it final).
-      - name: Set up JDK 21
+      # Baseline is JDK 25 LTS — the Windows backend uses the Foreign Function & Memory API
+      # (final in JDK 22; 25 is the first LTS with it final). macOS/systemd/OpenRC stay
+      # source-compatible with JDK 21, but the single jar is built for 25.
+      - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: "25"
           cache: maven
 
       - name: Build and test
         run: mvn -B -ntp verify
 
-      # Discovery is real on macOS; on Linux/Windows the CLI prints a friendly
-      # "not implemented yet" message and exits 0. Either way it must not crash.
+      # The discovery CLI must run without crashing on every OS. It constructs the real
+      # backend, so on Windows this also exercises the FFM SCM bindings (the jar's manifest
+      # grants native access, so no flag is needed).
       - name: Smoke-test discovery CLI
         run: java -jar target/servicepal.jar

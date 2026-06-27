@@ -9,8 +9,14 @@
 > - ✅ **Linux/systemd** — discovery + inspection + mutation (services); validated on real systemd
 >   via the probe. **`.timer` scheduling deferred** → systemd reports `calendar`/`interval`
 >   capabilities as `false` for now, so scheduled specs fail fast there.
-> - ⬜ **Linux/OpenRC** — pending (small; subprocess + shell-script renderer, no FFM).
-> - ⬜ **Windows** — pending; the biggest job. **Detailed build plan: `windows-implementation-plan.md`.**
+> - ✅ **Linux/OpenRC** — discovery + inspection + mutation (services). SYSTEM_WIDE-only and no
+>   native scheduler, so `perUserInstall`/`calendar`/`interval` are `false` (those fail fast).
+> - ✅ **Windows** — discovery + inspection + mutation. Daemons run via the bundled pure-Java FFM
+>   `ServiceHost` (SCM protocol, no shipped binary); scheduled jobs route to Task Scheduler.
+>   SYSTEM_WIDE-only in v1 (`perUserInstall` false); validated on the CI windows runner. Build
+>   plan: `windows-implementation-plan.md`.
+
+> **All four backends are implemented.** What follows is the design they realize.
 >
 > The design proved out essentially unchanged. The only notable in-flight refinement: discovery
 > returns `Discovery(services, unreadable)` (definition files we can't read are reported by name,

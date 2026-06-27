@@ -9,9 +9,9 @@ import com.u1.servicepal.model.ServiceStatus;
 import java.util.List;
 
 /**
- * Placeholder for platforms whose backend isn't written yet (systemd, OpenRC, Windows). It
+ * Placeholder for platforms whose backend isn't written yet (currently just Windows). It
  * reports the platform and its <em>intended</em> capabilities, but throws on any actual
- * operation. macOS is the only platform with a real backend in this build.
+ * operation. macOS, systemd, and OpenRC all have real backends in this build.
  */
 public final class UnimplementedBackend implements Backend {
 
@@ -97,7 +97,7 @@ public final class UnimplementedBackend implements Backend {
 
 	private UnsupportedOperationException notImplemented() {
 		return new UnsupportedOperationException("the " + platform + " backend is not yet"
-				+ " implemented; discovery is currently implemented for macOS only");
+				+ " implemented; macOS, systemd, and OpenRC are supported in this build");
 	}
 
 	/** Intended capabilities per platform (informational until the backend lands). */

@@ -30,19 +30,20 @@ public final class SelfTestCli {
 		}
 		final Platform platform = mgr.platform();
 		final boolean root = "root".equals(System.getProperty("user.name"));
-		final ServiceSpec.Builder builder = ServiceSpec.builder()
-				.id(ID)
-				.command("/bin/sleep", "120")
-				.autoStart(true);
+		final ServiceSpec.Builder builder = ServiceSpec.builder().id(ID).autoStart(true);
 		if (platform == Platform.MACOS_LAUNCHD) {
-			builder.asCurrentUser();   // a per-user launchd agent; no root needed
-		} else if (platform == Platform.LINUX_SYSTEMD) {
+			builder.command("/bin/sleep", "120").asCurrentUser();   // per-user agent; no root needed
+		} else if (platform == Platform.LINUX_SYSTEMD || platform == Platform.LINUX_OPENRC) {
 			if (!root) {
-				System.out.println("SELFTEST SKIP: the systemd self-test installs a system-wide"
-						+ " unit and needs sudo (this is " + platform + ", non-root)");
+				System.out.println("SELFTEST SKIP: the " + platform + " self-test installs a"
+						+ " system-wide service and needs root/sudo (this is non-root)");
 				return;
 			}
-			builder.asSystemDaemon();
+			builder.command("/bin/sleep", "120").asSystemDaemon();
+		} else if (platform == Platform.WINDOWS) {
+			// A long-running, console-less command supervised by our bundled FFM ServiceHost.
+			// Installing a machine-wide service needs admin; the GitHub windows runner is admin.
+			builder.command("ping", "-n", "120", "127.0.0.1").asSystemDaemon();
 		} else {
 			System.out.println("SELFTEST SKIP: mutation not implemented for " + platform);
 			return;
@@ -56,7 +57,13 @@ public final class SelfTestCli {
 			}
 			mgr.installEnableStart(spec);
 
-			final ServiceStatus st = mgr.status(ID);
+			// Starting can be asynchronous (Windows StartService returns before the host reaches
+			// RUNNING); poll briefly for RUNNING. A no-op once it is already running.
+			ServiceStatus st = mgr.status(ID);
+			for (int i = 0; i < 30 && st.state() != RunState.RUNNING; i++) {
+				Thread.sleep(500);
+				st = mgr.status(ID);
+			}
 			System.out.println("status: installed=" + st.installed() + " managed=" + st.managed()
 					+ " state=" + st.state() + " pid=" + st.pid());
 			failures += check("installed", st.installed());
@@ -72,7 +79,7 @@ public final class SelfTestCli {
 
 			final ServiceSpec back = mgr.read(ID);
 			failures += check("read round-trips command",
-					back != null && back.command().contains("/bin/sleep"));
+					back != null && back.command().equals(spec.command()));
 		} catch (final Throwable t) {
 			System.out.println("SELFTEST ERROR: " + t);
 			t.printStackTrace(System.out);
