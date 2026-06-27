@@ -1,0 +1,379 @@
+package com.u1.servicepal.internal.windows;
+
+import com.u1.servicepal.Capabilities;
+import com.u1.servicepal.DefinitionIOException;
+import com.u1.servicepal.Installation;
+import com.u1.servicepal.NativeCommandException;
+import com.u1.servicepal.Platform;
+import com.u1.servicepal.ServiceNotFoundException;
+import com.u1.servicepal.UnmanagedServiceException;
+import com.u1.servicepal.UnsupportedFeatureException;
+import com.u1.servicepal.internal.Backend;
+import com.u1.servicepal.internal.exec.DefaultCommandRunner;
+import com.u1.servicepal.model.Discovery;
+import com.u1.servicepal.model.RunAs;
+import com.u1.servicepal.model.RunState;
+import com.u1.servicepal.model.ServiceSpec;
+import com.u1.servicepal.model.ServiceStatus;
+import com.u1.servicepal.model.options.WindowsOptions;
+import java.io.IOException;
+import java.net.URISyntaxException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Windows backend. Routes by job shape (tension T2): a long-running daemon becomes a real
+ * Windows <em>service</em> whose {@code binPath} is our bundled pure-Java FFM {@link ServiceHost}
+ * (which speaks the SCM control protocol and supervises the real command — see the error-1053
+ * quirk); a scheduled job ({@code spec.schedule() != null}) becomes a <em>Task Scheduler</em>
+ * task, whose action is any command directly (no protocol, no host).
+ *
+ * <p>Every managed service/task gets a sidecar JSON in {@code %ProgramData%\ServicePal\<id>.json}
+ * — the host reads it to learn the real command, {@code read()} reconstructs the spec from it,
+ * its presence is the managed-by marker, and its {@code kind} field routes by-id operations.
+ *
+ * <p>SYSTEM_WIDE-only in v1 (no per-user services; {@code perUserInstall} is false). Discovery
+ * is sidecar-scoped — it lists the services ServicePal created; machine-wide enumeration of
+ * third-party services is a follow-up (status/isInstalled still work for any id via the SCM).
+ *
+ * <p>All native access is behind {@link Scm} (advapi32/FFM) and {@link TaskScheduler}
+ * (schtasks), so this backend unit-tests off-Windows with stubs.
+ */
+public final class WindowsBackend implements Backend {
+
+	private static final String MANAGED_DESCRIPTION_PREFIX = "[ServicePal] ";
+
+	private final Scm scm;
+	private final TaskScheduler taskScheduler;
+	private final Path sidecarDir;
+	private final String javawExe;
+	private final String classpath;
+	private final SidecarWriter writer = new SidecarWriter();
+	private final SidecarReader reader = new SidecarReader();
+	private final TaskXmlWriter taskXmlWriter = new TaskXmlWriter();
+
+	public WindowsBackend(final Scm scm, final TaskScheduler taskScheduler, final Path sidecarDir,
+			final String javawExe, final String classpath) {
+		this.scm = scm;
+		this.taskScheduler = taskScheduler;
+		this.sidecarDir = sidecarDir;
+		this.javawExe = javawExe;
+		this.classpath = classpath;
+	}
+
+	/** Real Windows wiring: FFM SCM, schtasks, %ProgramData% sidecars, this jar's host binPath. */
+	public static WindowsBackend createDefault() {
+		final String javaw = Path.of(System.getProperty("java.home", ""), "bin", "javaw.exe")
+				.toString();
+		return new WindowsBackend(new FfmScm(), new SchtasksScheduler(new DefaultCommandRunner()),
+				WindowsPaths.sidecarDir(), javaw, resolveClasspath());
+	}
+
+	@Override
+	public Platform platform() {
+		return Platform.WINDOWS;
+	}
+
+	@Override
+	public Capabilities capabilities() {
+		// SYSTEM_WIDE-only (no per-user) and no conditional keep-alive; Task Scheduler gives
+		// calendar+interval; the host gives keep-alive + log redirection; QueryServiceStatusEx
+		// gives structured status.
+		return new Capabilities(false, true, true, true, true, true, false, true, true);
+	}
+
+	@Override
+	public List<Installation> supportedInstallations() {
+		return List.of(Installation.SYSTEM_WIDE);
+	}
+
+	@Override
+	public Discovery discover(final Installation installation) {
+		final List<ServiceStatus> services = new ArrayList<>();
+		final List<String> unreadable = new ArrayList<>();
+		if (installation != Installation.SYSTEM_WIDE || !Files.isDirectory(sidecarDir)) {
+			return new Discovery(services, unreadable);
+		}
+		try (DirectoryStream<Path> stream = Files.newDirectoryStream(sidecarDir, "*.json")) {
+			for (final Path file : stream) {
+				final String id = stem(file);
+				try {
+					final ServiceStatus status = status(id, Installation.SYSTEM_WIDE);
+					if (status != null) {
+						services.add(status);
+					}
+				} catch (final DefinitionIOException e) {
+					unreadable.add(file.toString());
+				}
+			}
+		} catch (final IOException e) {
+			// unreadable directory — skip
+		}
+		return new Discovery(services, unreadable);
+	}
+
+	@Override
+	public ServiceSpec read(final String id, final Installation installation) {
+		final Map<String, Object> sidecar = sidecarOrNull(id);
+		return sidecar == null ? null : reader.toSpec(sidecar, id);
+	}
+
+	@Override
+	public String readNative(final String id, final Installation installation) {
+		final Path file = sidecarFile(id);
+		if (!Files.isRegularFile(file)) {
+			return null;
+		}
+		try {
+			return Files.readString(file);
+		} catch (final IOException e) {
+			throw new DefinitionIOException("failed to read " + file, e);
+		}
+	}
+
+	@Override
+	public ServiceStatus status(final String id, final Installation installation) {
+		if (installation != Installation.SYSTEM_WIDE) {
+			return null;
+		}
+		final Map<String, Object> sidecar = sidecarOrNull(id);
+		if (sidecar != null && SidecarReader.KIND_TASK.equals(reader.kind(sidecar))) {
+			if (!taskScheduler.exists(id)) {
+				return null;   // orphaned sidecar; the task is gone
+			}
+			final RunState state = taskScheduler.isRunning(id) ? RunState.RUNNING : RunState.STOPPED;
+			return new ServiceStatus(id, Installation.SYSTEM_WIDE, true, reader.autoStart(sidecar),
+					reader.isManaged(sidecar), state, null, null, null);
+		}
+		final ServiceControlStatus live = scm.queryStatus(id);
+		if (live == null) {
+			return null;   // not installed as a service
+		}
+		final boolean managed = sidecar != null && reader.isManaged(sidecar);
+		final boolean enabled = managed && reader.autoStart(sidecar);
+		return new ServiceStatus(id, Installation.SYSTEM_WIDE, true, enabled, managed,
+				live.state(), live.pid(), live.lastExitCode(), null);
+	}
+
+	// --- mutation ---
+
+	@Override
+	public void install(final ServiceSpec spec, final boolean overwriteUnmanaged) {
+		if (spec.runAs().installation() != Installation.SYSTEM_WIDE) {
+			throw new UnsupportedFeatureException("per-user installation", Platform.WINDOWS);
+		}
+		final String id = spec.id();
+		final boolean scheduled = spec.schedule() != null;
+
+		final Map<String, Object> existing = sidecarOrNull(id);
+		final boolean managed = existing != null && reader.isManaged(existing);
+		final boolean existsLive = scm.exists(id) || taskScheduler.exists(id);
+		if ((existing != null || existsLive) && !managed && !overwriteUnmanaged) {
+			throw new UnmanagedServiceException(id);
+		}
+
+		writeSidecar(id, writer.render(spec, scheduled));
+
+		if (scheduled) {
+			taskScheduler.create(id, taskXmlWriter.render(spec), accountOf(spec.runAs()),
+					passwordOf(spec));
+		} else {
+			final ServiceStartType startType = startTypeOf(spec);
+			if (scm.exists(id)) {
+				scm.setStartType(id, startType);   // upsert: sidecar rewritten above; reconcile SCM
+			} else {
+				scm.create(id, spec.displayName(), buildBinPath(javawExe, classpath, id), startType,
+						accountOf(spec.runAs()), passwordOf(spec), dependsOn(spec));
+			}
+			// The sidecar is the authoritative managed marker; the description marker is a
+			// human-visible hint, so a failure to set it must not fail an otherwise-good install.
+			ignoreFailure(() -> scm.setDescription(id, MANAGED_DESCRIPTION_PREFIX + describe(spec)));
+		}
+	}
+
+	@Override
+	public void uninstall(final String id, final Installation installation,
+			final boolean unmanagedOk) {
+		final Map<String, Object> sidecar = sidecarOrNull(id);
+		final boolean isService = scm.exists(id);
+		final boolean isTask = taskScheduler.exists(id);
+		if (sidecar == null && !isService && !isTask) {
+			throw new ServiceNotFoundException(id);
+		}
+		final boolean managed = sidecar != null && reader.isManaged(sidecar);
+		if (!unmanagedOk && !managed) {
+			throw new UnmanagedServiceException(id);
+		}
+		if (isTask(id, sidecar)) {
+			ignoreFailure(() -> taskScheduler.end(id));
+			ignoreFailure(() -> taskScheduler.delete(id));
+		} else {
+			ignoreFailure(() -> scm.stop(id));
+			ignoreFailure(() -> scm.delete(id));
+		}
+		deleteSidecar(id);
+	}
+
+	@Override
+	public void enable(final String id, final Installation installation) {
+		final Map<String, Object> sidecar = require(id);
+		if (isTask(id, sidecar)) {
+			taskScheduler.setEnabled(id, true);
+		} else {
+			scm.setStartType(id, ServiceStartType.AUTO);
+		}
+		updateAutoStart(id, sidecar, true);
+	}
+
+	@Override
+	public void disable(final String id, final Installation installation) {
+		final Map<String, Object> sidecar = require(id);
+		if (isTask(id, sidecar)) {
+			taskScheduler.setEnabled(id, false);
+		} else {
+			scm.setStartType(id, ServiceStartType.DEMAND);   // won't auto-start, still startable
+		}
+		updateAutoStart(id, sidecar, false);
+	}
+
+	@Override
+	public void start(final String id, final Installation installation) {
+		final Map<String, Object> sidecar = require(id);
+		if (isTask(id, sidecar)) {
+			taskScheduler.run(id);
+		} else {
+			scm.start(id);
+		}
+	}
+
+	@Override
+	public void stop(final String id, final Installation installation) {
+		final Map<String, Object> sidecar = require(id);
+		if (isTask(id, sidecar)) {
+			taskScheduler.end(id);
+		} else {
+			scm.stop(id);
+		}
+	}
+
+	@Override
+	public void restart(final String id, final Installation installation) {
+		stop(id, installation);
+		start(id, installation);
+	}
+
+	// --- helpers ---
+
+	/** The host invocation registered as a service's binPath. Package-visible for testing. */
+	static String buildBinPath(final String javawExe, final String classpath, final String id) {
+		return "\"" + javawExe + "\" --enable-native-access=ALL-UNNAMED -cp \"" + classpath + "\" "
+				+ ServiceHost.class.getName() + " --id " + id;
+	}
+
+	private Map<String, Object> require(final String id) {
+		final Map<String, Object> sidecar = sidecarOrNull(id);
+		if (sidecar == null && !scm.exists(id) && !taskScheduler.exists(id)) {
+			throw new ServiceNotFoundException(id);
+		}
+		return sidecar;
+	}
+
+	/** Is this id a scheduled task? From the sidecar kind if present, else from what exists live. */
+	private boolean isTask(final String id, final Map<String, Object> sidecar) {
+		if (sidecar != null) {
+			return SidecarReader.KIND_TASK.equals(reader.kind(sidecar));
+		}
+		return !scm.exists(id) && taskScheduler.exists(id);
+	}
+
+	private void updateAutoStart(final String id, final Map<String, Object> sidecar,
+			final boolean autoStart) {
+		if (sidecar == null) {
+			return;   // unmanaged; nothing of ours to update
+		}
+		final boolean scheduled = SidecarReader.KIND_TASK.equals(reader.kind(sidecar));
+		final ServiceSpec updated = reader.toSpec(sidecar, id).toBuilder()
+				.autoStart(autoStart).build();
+		writeSidecar(id, writer.render(updated, scheduled));
+	}
+
+	private ServiceStartType startTypeOf(final ServiceSpec spec) {
+		final WindowsOptions opts = spec.windows();
+		if (opts != null && opts.startType() != null) {
+			return switch (opts.startType()) {
+				case AUTO, DELAYED_AUTO -> ServiceStartType.AUTO;
+				case MANUAL -> ServiceStartType.DEMAND;
+				case DISABLED -> ServiceStartType.DISABLED;
+			};
+		}
+		return spec.autoStart() ? ServiceStartType.AUTO : ServiceStartType.DEMAND;
+	}
+
+	private static String accountOf(final RunAs runAs) {
+		return runAs.kind() == RunAs.Kind.NAMED_USER ? runAs.userName() : null;   // null = LocalSystem
+	}
+
+	private static String passwordOf(final ServiceSpec spec) {
+		return spec.windows() != null ? spec.windows().password() : null;
+	}
+
+	private static List<String> dependsOn(final ServiceSpec spec) {
+		return spec.windows() != null ? spec.windows().dependsOn() : List.of();
+	}
+
+	private static String describe(final ServiceSpec spec) {
+		return spec.description() != null ? spec.description() : spec.displayName();
+	}
+
+	private Path sidecarFile(final String id) {
+		return sidecarDir.resolve(id + ".json");
+	}
+
+	private Map<String, Object> sidecarOrNull(final String id) {
+		final Path file = sidecarFile(id);
+		return Files.isRegularFile(file) ? reader.parseFile(file) : null;
+	}
+
+	private void writeSidecar(final String id, final String json) {
+		try {
+			Files.createDirectories(sidecarDir);
+			Files.writeString(sidecarFile(id), json);
+		} catch (final IOException e) {
+			throw new DefinitionIOException("failed to write sidecar for " + id, e);
+		}
+	}
+
+	private void deleteSidecar(final String id) {
+		try {
+			Files.deleteIfExists(sidecarFile(id));
+		} catch (final IOException e) {
+			throw new DefinitionIOException("failed to delete sidecar for " + id, e);
+		}
+	}
+
+	private static String stem(final Path file) {
+		final String name = file.getFileName().toString();
+		return name.endsWith(".json") ? name.substring(0, name.length() - ".json".length()) : name;
+	}
+
+	private static String resolveClasspath() {
+		try {
+			return Path.of(WindowsBackend.class.getProtectionDomain().getCodeSource().getLocation()
+					.toURI()).toString();
+		} catch (final URISyntaxException | RuntimeException e) {
+			return System.getProperty("java.class.path", "");
+		}
+	}
+
+	private static void ignoreFailure(final Runnable action) {
+		try {
+			action.run();
+		} catch (final NativeCommandException ignored) {
+			// best-effort (teardown / cosmetic description)
+		}
+	}
+}

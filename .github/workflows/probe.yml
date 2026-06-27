@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: maven
 
       - name: Build jar
@@ -36,12 +36,13 @@ jobs:
         shell: bash
         run: java -jar target/servicepal.jar || true
 
-      # Real mutation lifecycle (install -> start -> inspect -> uninstall) of a throwaway
-      # PER_USER agent. macOS does the real work; other platforms print SKIP. Non-fatal so the
-      # probe stays informational — read the SELFTEST PASS/FAIL line in the log.
+      # Real mutation lifecycle (install -> start -> inspect -> uninstall). macOS (PER_USER agent)
+      # and Windows (admin: a service via the FFM host) do the real work; non-root Linux prints
+      # SKIP. --enable-native-access is needed because the Windows path uses FFM (harmless
+      # elsewhere). Non-fatal — read the SELFTEST PASS/FAIL line in the log.
       - name: Probe — mutation self-test
         shell: bash
-        run: java -cp target/servicepal.jar com.u1.servicepal.cli.SelfTestCli || true
+        run: java --enable-native-access=ALL-UNNAMED -cp target/servicepal.jar com.u1.servicepal.cli.SelfTestCli || true
 
       # systemd installs a system-wide unit, which needs root — run the self-test under sudo
       # on Linux (the ubuntu runner is systemd). macOS already covered by the non-sudo step.
@@ -54,6 +55,18 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: sudo "$(which java)" -jar target/servicepal.jar || true
+
+      # The FFM ServiceHost runs as a service (no console), so it logs to a file. Dump it (and
+      # the sidecar dir) to debug the Windows self-test. The self-test deletes the sidecar on
+      # cleanup but leaves the host log.
+      - name: Windows — host log + sidecars (debug)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "===== sidecar dir ====="
+          ls -la /c/ProgramData/ServicePal/ 2>/dev/null || echo "(no sidecar dir)"
+          echo "===== host log(s) ====="
+          cat /c/ProgramData/ServicePal/*.host.log 2>/dev/null || echo "(no host log)"
 
       - name: macOS — raw launchctl print format (ground truth)
         if: runner.os == 'macOS'
@@ -83,7 +96,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: maven
 
       - name: Build jar (on host)
@@ -92,7 +105,7 @@ jobs:
       - name: Probe inside Alpine + OpenRC
         run: |
           docker run --rm -v "$PWD:/w" -w /w alpine:latest sh -c '
-            apk add --no-cache openjdk21-jre openrc >/dev/null &&
+            apk add --no-cache openjdk25-jre openrc >/dev/null &&
             echo "rc-service: $(command -v rc-service)" &&
             # Minimal OpenRC runtime state so rc-service can run in a non-booted container.
             mkdir -p /run/openrc && touch /run/openrc/softlevel &&
