@@ -1,5 +1,6 @@
 package com.u1.servicepal.internal.openrc;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -45,8 +46,6 @@ class RcScriptWriterTest {
 
 	@Test
 	void namedUserWorkingDirEnvAndLogsRendered() {
-		// Paths are rendered via Path.toString(), so build the expected text from the same Paths
-		// to stay OS-independent (a forward-slash literal would mismatch on a Windows test runner).
 		final Path workdir = Path.of("/var/lib/svc");
 		final Path out = Path.of("/var/log/svc.log");
 		final Path err = Path.of("/var/log/svc.err");
@@ -60,11 +59,16 @@ class RcScriptWriterTest {
 				.stderr(err)
 				.build());
 
+		// Non-path fields can be matched literally.
 		assertTrue(script.contains("command_user=\"www-data\""), script);
-		assertTrue(script.contains("directory=\"" + workdir + "\""), script);
 		assertTrue(script.contains("export FOO=\"bar\""), script);
-		assertTrue(script.contains("output_log=\"" + out + "\""), script);
-		assertTrue(script.contains("error_log=\"" + err + "\""), script);
+		// Paths render via Path.toString() (OS-dependent separators) and are then shell-escaped, so
+		// round-trip through the reader and compare Paths to stay OS-independent.
+		final ServiceSpec back = new RcScriptReader().toSpec(script, "svc");
+		assertEquals(workdir, back.workingDirectory());
+		assertEquals(out, back.stdout());
+		assertEquals(err, back.stderr());
+		assertEquals("www-data", back.runAs().userName());
 	}
 
 	@Test
