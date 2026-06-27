@@ -89,11 +89,24 @@ cross-platform API is designed and approved.
 
 ## Design docs (step 2)
 
-- `docs/design/api-design.md` — **the API proposal**: the three-tier uniformity model
-  (uniform core / typed platform option blocks / fail-fast capability gaps), the
-  `ServiceManager` facade, `ServiceSpec` model, and the Windows Java-host design.
+- `docs/design/api-design.md` — **the API design** (approved, now being implemented): the
+  three-tier uniformity model, `ServiceManager` facade, `ServiceSpec` model, Windows host design.
+  Its header tracks per-platform implementation progress.
+- `docs/design/windows-implementation-plan.md` — **detailed Windows build plan / next-session
+  handoff**: the `internal/windows/` layout (mirroring macOS/systemd), the FFM `ServiceHost`,
+  `Scm`/`TaskScheduler` seams, JDK-25 bump, install/lifecycle flows, an FFM cheat-sheet, and the
+  probe-validation loop. **Start here for the Windows module.**
 - `docs/ROADMAP.md` — deferred items (WinSW alt host, lower-JDK Mac/Linux build, SysV/runit,
   cron fallback, D-Bus).
+
+## ▶ Next session: implement **Windows** (the big remaining job)
+
+Two backends remain: **Windows** (large — FFM service host + Task Scheduler; the pivotal SCM
+quirk) and **OpenRC** (small — subprocess + shell-script renderer, closest to the systemd shape;
+plus systemd `.timer` support). **Recommended next: Windows** — follow
+`docs/design/windows-implementation-plan.md` step by step, mirroring the existing
+`internal/{macos,systemd}` backends, and validate with the CI probe's `SelfTestCli` on the
+`windows-latest` runner (push to branch → probe → iterate → open the PR only once green).
 
 ## Owner-approved decisions (step 2)
 

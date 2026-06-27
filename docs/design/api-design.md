@@ -1,8 +1,20 @@
-# API Design — universal service manager (step 2 proposal)
+# API Design — universal service manager
 
-> **Status:** Proposal for owner approval. No implementation yet. Supersedes the
-> single-platform sketch in `CLAUDE.md`. Built on the research in `docs/research/`
+> **Status:** **Approved and being implemented.** This design is the contract the code follows.
+> Supersedes the single-platform sketch in `CLAUDE.md`. Built on the research in `docs/research/`
 > (read `cross-platform-synthesis.md` first).
+>
+> **Implementation progress** (see `CLAUDE.md` "Implementation status" for detail):
+> - ✅ **macOS launchd** — discovery + inspection + mutation; validated on a real Mac via the CI probe.
+> - ✅ **Linux/systemd** — discovery + inspection + mutation (services); validated on real systemd
+>   via the probe. **`.timer` scheduling deferred** → systemd reports `calendar`/`interval`
+>   capabilities as `false` for now, so scheduled specs fail fast there.
+> - ⬜ **Linux/OpenRC** — pending (small; subprocess + shell-script renderer, no FFM).
+> - ⬜ **Windows** — pending; the biggest job. **Detailed build plan: `windows-implementation-plan.md`.**
+>
+> The design proved out essentially unchanged. The only notable in-flight refinement: discovery
+> returns `Discovery(services, unreadable)` (definition files we can't read are reported by name,
+> not dropped), and `ServiceStatus` carries its `Installation`.
 >
 > **Decisions baked in** (owner-approved): pure-Java FFM service host on Windows (bundled,
 > runnable, the default path); **JDK 25** baseline; **systemd + OpenRC** both shipped in v1
@@ -471,6 +483,11 @@ point.
 ---
 
 ## 10. Windows specifics — the bundled Java service host
+
+> **For the next session:** the concrete, step-by-step build plan (FFM cheat-sheet, the
+> `internal/windows/` layout mirroring macOS/systemd, install/lifecycle flows, JDK-25 bump,
+> probe validation) is in **`windows-implementation-plan.md`**. The summary below is the design;
+> that file is the how-to.
 
 Resolves tension **T1** while honoring "no compiled binaries":
 
