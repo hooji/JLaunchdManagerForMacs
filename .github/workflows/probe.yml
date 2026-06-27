@@ -45,14 +45,17 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
+          # Dump to files first: piping a large stream into `head` closes the pipe early and,
+          # under the default `pipefail`, SIGPIPE would fail the step. Reading files is safe.
+          set +o pipefail
+          sudo launchctl print system >/tmp/sys.txt 2>/dev/null || true
           echo "===== system domain (head) ====="
-          sudo launchctl print system 2>/dev/null | head -n 60 || true
+          head -n 40 /tmp/sys.txt || true
+          LABEL=$(grep -oE 'com\.apple\.[a-zA-Z0-9._-]+' /tmp/sys.txt | head -n 1)
           echo
-          echo "===== a known running Apple daemon, raw ====="
-          LABEL=$(sudo launchctl print system 2>/dev/null \
-            | grep -oE 'com\.apple\.[a-zA-Z0-9._-]+' | head -n 1)
-          echo "sample label: ${LABEL}"
-          sudo launchctl print "system/${LABEL}" 2>/dev/null | head -n 60 || true
+          echo "===== ${LABEL} (raw) ====="
+          sudo launchctl print "system/${LABEL}" >/tmp/svc.txt 2>/dev/null || true
+          head -n 40 /tmp/svc.txt || true
 
   # The non-systemd Linux path: run our jar inside an Alpine+OpenRC container so platform
   # detection hits LINUX_OPENRC. Best-effort — container quirks shouldn't fail the run.

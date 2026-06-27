@@ -69,6 +69,14 @@ cross-platform API is designed and approved.
   - Native access stays behind `CommandRunner`/`Launchctl` so everything unit-tests off-platform.
 - **Testing reach:** GitHub CI covers all three OSes for build+unit tests; full launchd behavior
   is best verified on a real Mac (owner runs macOS). The discovery CLI is the manual smoke test.
+- **Cross-platform probe** (`.github/workflows/probe.yml`, `workflow_dispatch` + dev-branch push):
+  builds and *runs* the CLI on ubuntu/macos/windows + an Alpine/OpenRC container, for exploratory
+  validation (not pass/fail tests). Findings so far: platform detection is correct on all four
+  (systemd / OpenRC / Windows / launchd); the macOS status parser is **validated** — a `sudo`
+  run on the macOS runner shows running daemons as `RUNNING` + real PID. Known honest limitation:
+  global **agents** (`/Library/LaunchAgents`) read as `UNKNOWN` under `sudo`, because root's
+  `gui/0` session can't see them (they live in the console user's `gui/<uid>`); a future refinement
+  can resolve the console user's uid for that case.
 
 ## Design docs (step 2)
 
