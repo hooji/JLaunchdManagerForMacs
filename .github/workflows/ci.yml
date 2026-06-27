@@ -1,25 +1,46 @@
 name: CI
 
+# Real, gating CI: it builds, runs the full unit-test suite, AND exercises the actual
+# OS service-manager lifecycle (install -> start -> verify RUNNING+pid -> uninstall) on every
+# supported platform. Any failure fails the job — there is no `|| true` here (that is what the
+# exploratory probe.yml is for). Runs on every push and on pull requests.
 on:
   push:
     branches: ["**"]
   pull_request:
 
+permissions:
+  contents: read
+
+# Cancel an in-progress run when a newer commit is pushed to the same ref (saves CI minutes).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    name: build (${{ matrix.os }})
+    name: build+test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Current + one-prior per OS, on the newest available runner images (June 2026).
+        # macOS: macos-26 (Tahoe, the newest) + macos-15 (prior) — Apple's versioning jumped
+        # 15 -> 26, and the old macos-13/14 images are dropped (14 starts deprecation July 2026).
+        os:
+          - ubuntu-26.04
+          - ubuntu-24.04
+          - macos-26
+          - macos-15
+          - windows-2025
+          - windows-2022
 
     steps:
       - uses: actions/checkout@v4
 
       # Baseline is JDK 25 LTS — the Windows backend uses the Foreign Function & Memory API
-      # (final in JDK 22; 25 is the first LTS with it final). macOS/systemd/OpenRC stay
-      # source-compatible with JDK 21, but the single jar is built for 25.
+      # (final in JDK 22; 25 is the first LTS with it final). The build targets release 25, so
+      # 25 is the floor (a lower-JDK Mac/Linux-only build stays a roadmap item).
       - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
@@ -27,11 +48,74 @@ jobs:
           java-version: "25"
           cache: maven
 
+      # Full build + every unit test. `verify` fails the job on any test failure, and also
+      # packages the runnable jar that the real-lifecycle self-test below needs.
       - name: Build and test
         run: mvn -B -ntp verify
 
-      # The discovery CLI must run without crashing on every OS. It constructs the real
-      # backend, so on Windows this also exercises the FFM SCM bindings (the jar's manifest
-      # grants native access, so no flag is needed).
+      # The discovery CLI must construct the real backend and run without crashing on every OS
+      # (on Windows this also exercises the FFM SCM bindings — the jar manifest grants native
+      # access, so `java -jar` needs no flag).
       - name: Smoke-test discovery CLI
         run: java -jar target/servicepal.jar
+
+      # --- Real mutation lifecycle (GATING) -------------------------------------------------
+      # SelfTestCli installs a throwaway service, starts it, asserts it reaches RUNNING with a
+      # pid, round-trips read()/readNative(), then uninstalls — talking to the real service
+      # manager. It exits non-zero on any failed check (and 0 on pass/skip), so these steps
+      # gate CI. `--enable-native-access=ALL-UNNAMED` is required for the Windows FFM host under
+      # `-cp` (JEP 472) and is harmless on the other platforms.
+
+      - name: Self-test — macOS launchd (per-user agent, no root)
+        if: runner.os == 'macOS'
+        run: java --enable-native-access=ALL-UNNAMED -cp target/servicepal.jar com.u1.servicepal.cli.SelfTestCli
+
+      - name: Self-test — Windows service (admin, FFM host)
+        if: runner.os == 'Windows'
+        run: java --enable-native-access=ALL-UNNAMED -cp target/servicepal.jar com.u1.servicepal.cli.SelfTestCli
+
+      # systemd installs a system-wide unit, which needs root — run under sudo. sudo resets PATH,
+      # so pass the absolute java path resolved from the runner user's PATH.
+      - name: Self-test — Linux systemd (root)
+        if: runner.os == 'Linux'
+        run: sudo "$(which java)" --enable-native-access=ALL-UNNAMED -cp target/servicepal.jar com.u1.servicepal.cli.SelfTestCli
+
+      # The FFM ServiceHost runs as a service (no console) and logs to a file. Dump it if the
+      # Windows self-test failed, to debug the SCM round-trip.
+      - name: Windows — host log on failure (debug)
+        if: failure() && runner.os == 'Windows'
+        shell: bash
+        run: cat /c/ProgramData/ServicePal/*.host.log 2>/dev/null || echo "(no host log)"
+
+  # The non-systemd Linux path: run the REAL rc-service lifecycle inside an Alpine + OpenRC
+  # container so platform detection hits LINUX_OPENRC. GATING — the script runs the discovery
+  # CLI and the self-test, and any non-zero exit fails the docker run (and therefore the job).
+  openrc:
+    name: build+test (alpine/openrc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      # Run the full unit suite here too (CI is cheap), and build the runnable jar that the
+      # Alpine container exercises below.
+      - name: Build and test (on host)
+        run: mvn -B -ntp verify
+
+      - name: Real OpenRC lifecycle inside Alpine
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w alpine:latest sh -c '
+            apk add --no-cache openjdk25-jre openrc >/dev/null &&
+            echo "rc-service: $(command -v rc-service)" &&
+            # Minimal OpenRC runtime state so rc-service can run in a non-booted container.
+            mkdir -p /run/openrc && touch /run/openrc/softlevel &&
+            echo "===== discovery =====" &&
+            java -jar target/servicepal.jar &&
+            echo "===== mutation self-test (root) =====" &&
+            java -cp target/servicepal.jar com.u1.servicepal.cli.SelfTestCli'
