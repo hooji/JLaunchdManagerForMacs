@@ -36,8 +36,18 @@ public interface Scm {
 	/** Send the STOP control ({@code ControlService}). */
 	void stop(String name);
 
-	/** Change only the start type ({@code ChangeServiceConfigW}). */
+	/** Change only the start type ({@code ChangeServiceConfigW}); used by enable/disable. */
 	void setStartType(String name, ServiceStartType startType);
+
+	/**
+	 * Reconcile an existing service's config in place ({@code ChangeServiceConfigW}) — used by an
+	 * upsert so a changed account / displayName / start type actually reaches the SCM record
+	 * (avoids the delete-then-recreate {@code ERROR_SERVICE_MARKED_FOR_DELETE} hazard).
+	 *
+	 * @param account {@code null} resets the logon account to {@code LocalSystem}
+	 */
+	void updateConfig(String name, String binPath, ServiceStartType startType, String account,
+			String password, String displayName);
 
 	/** Set the description ({@code ChangeServiceConfig2W}); carries our managed marker too. */
 	void setDescription(String name, String description);

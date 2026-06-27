@@ -125,7 +125,15 @@ public final class TaskXmlWriter {
 			if (i > 1) {
 				sb.append(' ');
 			}
-			sb.append(spec.command().get(i));
+			final String arg = spec.command().get(i);
+			// Quote args containing whitespace so they survive Task Scheduler's command-line split
+			// (the value is then XML-escaped by the caller). The daemon path is immune — it uses
+			// ProcessBuilder(List).
+			if (arg.indexOf(' ') >= 0 || arg.indexOf('\t') >= 0) {
+				sb.append('"').append(arg).append('"');
+			} else {
+				sb.append(arg);
+			}
 		}
 		return sb.toString();
 	}

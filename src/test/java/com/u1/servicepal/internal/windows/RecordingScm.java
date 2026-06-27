@@ -15,6 +15,7 @@ public final class RecordingScm implements Scm {
 	public String lastBinPath;
 	public String lastAccount;
 	public String lastPassword;
+	public String lastDisplayName;
 	public ServiceStartType lastStartType;
 	public ServiceControlStatus status = new ServiceControlStatus(RunState.RUNNING, 1234, null);
 
@@ -55,6 +56,18 @@ public final class RecordingScm implements Scm {
 	public void setStartType(final String name, final ServiceStartType startType) {
 		calls.add("setStartType " + name + " " + startType);
 		lastStartType = startType;
+	}
+
+	@Override
+	public void updateConfig(final String name, final String binPath,
+			final ServiceStartType startType, final String account, final String password,
+			final String displayName) {
+		calls.add("updateConfig " + name);
+		lastBinPath = binPath;
+		lastStartType = startType;
+		lastAccount = account;
+		lastPassword = password;
+		lastDisplayName = displayName;
 	}
 
 	@Override

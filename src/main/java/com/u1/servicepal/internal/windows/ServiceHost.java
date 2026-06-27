@@ -3,6 +3,7 @@ package com.u1.servicepal.internal.windows;
 import com.u1.servicepal.model.RestartPolicy;
 import com.u1.servicepal.model.ServiceSpec;
 import java.io.IOException;
+import java.lang.foreign.AddressLayout;
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
@@ -104,8 +105,8 @@ public final class ServiceHost {
 	private void run() {
 		log("host starting for id=" + id);
 		final SymbolLookup advapi32 = SymbolLookup.libraryLookup("Advapi32.dll", arena);
-		final var p = ValueLayout.ADDRESS;
-		final var i = ValueLayout.JAVA_INT;
+		final AddressLayout p = ValueLayout.ADDRESS;
+		final ValueLayout.OfInt i = ValueLayout.JAVA_INT;
 
 		final MethodHandle startDispatcher = linker.downcallHandle(
 				advapi32.find("StartServiceCtrlDispatcherW").orElseThrow(),

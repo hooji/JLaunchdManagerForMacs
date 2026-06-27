@@ -183,11 +183,18 @@ public final class WindowsBackend implements Backend {
 					passwordOf(spec));
 		} else {
 			final ServiceStartType startType = startTypeOf(spec);
+			final String binPath = buildBinPath(javawExe, classpath, id);
+			final String account = accountForScm(spec);
 			if (scm.exists(id)) {
-				scm.setStartType(id, startType);   // upsert: sidecar rewritten above; reconcile SCM
+				// Upsert: reconcile the SCM record in place so a changed run-as account, display
+				// name, or start type actually takes effect (the command updates via the sidecar
+				// rewritten above). In-place ChangeServiceConfig avoids the delete+recreate
+				// ERROR_SERVICE_MARKED_FOR_DELETE hazard.
+				scm.updateConfig(id, binPath, startType, account, passwordOf(spec),
+						spec.displayName());
 			} else {
-				scm.create(id, spec.displayName(), buildBinPath(javawExe, classpath, id), startType,
-						accountOf(spec.runAs()), passwordOf(spec), dependsOn(spec));
+				scm.create(id, spec.displayName(), binPath, startType, account, passwordOf(spec),
+						dependsOn(spec));
 			}
 			// The sidecar is the authoritative managed marker; the description marker is a
 			// human-visible hint, so a failure to set it must not fail an otherwise-good install.
@@ -305,7 +312,8 @@ public final class WindowsBackend implements Backend {
 		final WindowsOptions opts = spec.windows();
 		if (opts != null && opts.startType() != null) {
 			return switch (opts.startType()) {
-				case AUTO, DELAYED_AUTO -> ServiceStartType.AUTO;
+				case AUTO -> ServiceStartType.AUTO;
+				case DELAYED_AUTO -> ServiceStartType.AUTO_DELAYED;
 				case MANUAL -> ServiceStartType.DEMAND;
 				case DISABLED -> ServiceStartType.DISABLED;
 			};
@@ -313,8 +321,28 @@ public final class WindowsBackend implements Backend {
 		return spec.autoStart() ? ServiceStartType.AUTO : ServiceStartType.DEMAND;
 	}
 
+	/** The bare run-as account (used for the Task Scheduler {@code /ru}); {@code null} = LocalSystem. */
 	private static String accountOf(final RunAs runAs) {
-		return runAs.kind() == RunAs.Kind.NAMED_USER ? runAs.userName() : null;   // null = LocalSystem
+		return runAs.kind() == RunAs.Kind.NAMED_USER ? runAs.userName() : null;
+	}
+
+	/**
+	 * The SCM logon account ({@code lpServiceStartName}); {@code null} = LocalSystem. An explicit
+	 * {@code WindowsOptions.account()} wins (e.g. {@code "NT AUTHORITY\\LocalService"}); otherwise a
+	 * bare named user is qualified to the local machine ({@code name} &rarr; {@code .\name}), while a
+	 * name that already contains a backslash (a domain or built-in account) is left as given.
+	 */
+	private static String accountForScm(final ServiceSpec spec) {
+		final WindowsOptions opts = spec.windows();
+		if (opts != null && opts.account() != null) {
+			return opts.account();
+		}
+		final RunAs runAs = spec.runAs();
+		if (runAs.kind() == RunAs.Kind.NAMED_USER) {
+			final String name = runAs.userName();
+			return name.contains("\\") ? name : ".\\" + name;
+		}
+		return null;   // LocalSystem
 	}
 
 	private static String passwordOf(final ServiceSpec spec) {

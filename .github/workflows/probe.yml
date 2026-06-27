@@ -7,7 +7,7 @@ name: Probe (cross-platform manual run)
 on:
   workflow_dispatch:
   push:
-    branches: [claude/java-launchd-api-design-zkcty4, claude/project-familiarization-axnrtj]
+    branches: [claude/java-launchd-api-design-zkcty4, claude/project-familiarization-axnrtj, claude/windows-incremental-improvements]
 
 permissions:
   contents: read

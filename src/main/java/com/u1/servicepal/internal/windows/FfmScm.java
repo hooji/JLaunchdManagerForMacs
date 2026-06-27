@@ -2,6 +2,7 @@ package com.u1.servicepal.internal.windows;
 
 import com.u1.servicepal.NativeCommandException;
 import com.u1.servicepal.ServiceException;
+import java.lang.foreign.AddressLayout;
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
@@ -45,6 +46,8 @@ public final class FfmScm implements Scm {
 	private static final int SERVICE_CONTROL_STOP = 0x00000001;
 	private static final int SC_STATUS_PROCESS_INFO = 0;
 	private static final int SERVICE_CONFIG_DESCRIPTION = 1;
+	private static final int SERVICE_CONFIG_DELAYED_AUTO_START_INFO = 3;
+	private static final String LOCAL_SYSTEM = "LocalSystem";
 
 	// --- error codes we treat specially ---
 	private static final int ERROR_SERVICE_DOES_NOT_EXIST = 1060;
@@ -79,7 +82,7 @@ public final class FfmScm implements Scm {
 		final SymbolLookup advapi32 = SymbolLookup.libraryLookup("Advapi32.dll", arena);
 		final Linker.Option capture = Linker.Option.captureCallState("GetLastError");
 		final ValueLayout.OfInt i = ValueLayout.JAVA_INT;
-		final var p = ValueLayout.ADDRESS;
+		final AddressLayout p = ValueLayout.ADDRESS;
 
 		openSCManager = handle(advapi32, capture, "OpenSCManagerW",
 				FunctionDescriptor.of(p, p, p, i));
@@ -160,6 +163,9 @@ public final class FfmScm implements Scm {
 				if (isNull(service)) {
 					throw fail("CreateServiceW", name, capture);
 				}
+				if (startType.delayed()) {
+					setDelayedAutoStart(a, capture, service, name);
+				}
 				close(capture, service);
 			} finally {
 				close(capture, scm);
@@ -223,6 +229,39 @@ public final class FfmScm implements Scm {
 			if (ok == 0) {
 				throw fail("ChangeServiceConfigW", name, capture);
 			}
+			if (startType.delayed()) {
+				setDelayedAutoStart(a, capture, service, name);
+			}
+			return null;
+		});
+	}
+
+	@Override
+	public void updateConfig(final String name, final String binPath,
+			final ServiceStartType startType, final String account, final String password,
+			final String displayName) {
+		withService(name, SERVICE_CHANGE_CONFIG, (a, capture, service) -> {
+			// ChangeServiceConfigW treats a NULL lpServiceStartName as "no change", so to actually
+			// reset the account to LocalSystem we must pass the literal name (unlike CreateServiceW,
+			// where NULL means LocalSystem).
+			final String startName = account != null ? account : LOCAL_SYSTEM;
+			final int ok = (int) changeServiceConfig.invoke(capture, service,
+					SERVICE_NO_CHANGE,                                          // dwServiceType
+					startType.code(),                                           // dwStartType
+					SERVICE_NO_CHANGE,                                          // dwErrorControl
+					wide(a, binPath),                                           // lpBinaryPathName
+					MemorySegment.NULL,                                         // lpLoadOrderGroup
+					MemorySegment.NULL,                                         // lpdwTagId
+					MemorySegment.NULL,                                         // lpDependencies
+					wide(a, startName),                                         // lpServiceStartName
+					password != null ? wide(a, password) : MemorySegment.NULL,  // lpPassword
+					displayName != null ? wide(a, displayName) : MemorySegment.NULL);  // lpDisplayName
+			if (ok == 0) {
+				throw fail("ChangeServiceConfigW", name, capture);
+			}
+			if (startType.delayed()) {
+				setDelayedAutoStart(a, capture, service, name);
+			}
 			return null;
 		});
 	}
@@ -276,6 +315,19 @@ public final class FfmScm implements Scm {
 			throw e;
 		} catch (final Throwable t) {
 			throw new ServiceException("QueryServiceStatusEx failed for " + name, t);
+		}
+	}
+
+	/** Set the delayed-auto-start flag via {@code ChangeServiceConfig2W}
+	 * ({@code SERVICE_CONFIG_DELAYED_AUTO_START_INFO}). The struct is a single {@code BOOL}. */
+	private void setDelayedAutoStart(final Arena arena, final MemorySegment capture,
+			final MemorySegment service, final String name) throws Throwable {
+		final MemorySegment info = arena.allocate(ValueLayout.JAVA_INT);   // { BOOL fDelayedAutostart }
+		info.set(ValueLayout.JAVA_INT, 0, 1);
+		final int ok = (int) changeServiceConfig2.invoke(capture, service,
+				SERVICE_CONFIG_DELAYED_AUTO_START_INFO, info);
+		if (ok == 0) {
+			throw fail("ChangeServiceConfig2W(delayed-auto)", name, capture);
 		}
 	}
 

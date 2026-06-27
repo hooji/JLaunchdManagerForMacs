@@ -4,10 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.u1.servicepal.model.CalendarSchedule;
+import com.u1.servicepal.model.IntervalSchedule;
 import com.u1.servicepal.model.RestartPolicy;
 import com.u1.servicepal.model.RunAs;
+import com.u1.servicepal.model.Schedule;
 import com.u1.servicepal.model.ServiceSpec;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -53,6 +57,36 @@ class SidecarRoundTripTest {
 				.build();
 		final Map<String, Object> sidecar = reader.parse(writer.render(spec, true));
 		assertEquals(SidecarReader.KIND_TASK, reader.kind(sidecar));
+	}
+
+	@Test
+	void roundTripsAnIntervalSchedule() {
+		final ServiceSpec spec = ServiceSpec.builder()
+				.id("com.example.poll")
+				.command("C:\\app\\poll.exe")
+				.asSystemDaemon()
+				.schedule(Schedule.every(Duration.ofMinutes(5)))
+				.build();
+		final ServiceSpec back = reader.toSpec(reader.parse(writer.render(spec, true)),
+				"com.example.poll");
+		assertTrue(back.schedule() instanceof IntervalSchedule);
+		assertEquals(Duration.ofMinutes(5), ((IntervalSchedule) back.schedule()).period());
+	}
+
+	@Test
+	void roundTripsACalendarSchedule() {
+		final ServiceSpec spec = ServiceSpec.builder()
+				.id("com.example.nightly")
+				.command("C:\\app\\nightly.exe")
+				.asSystemDaemon()
+				.schedule(Schedule.dailyAt(3, 30))
+				.build();
+		final ServiceSpec back = reader.toSpec(reader.parse(writer.render(spec, true)),
+				"com.example.nightly");
+		assertTrue(back.schedule() instanceof CalendarSchedule);
+		final CalendarSchedule calendar = (CalendarSchedule) back.schedule();
+		assertEquals(Integer.valueOf(3), calendar.spec().hour());
+		assertEquals(Integer.valueOf(30), calendar.spec().minute());
 	}
 
 	@Test

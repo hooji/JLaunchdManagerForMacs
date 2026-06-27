@@ -80,6 +80,15 @@ public final class SelfTestCli {
 			final ServiceSpec back = mgr.read(ID);
 			failures += check("read round-trips command",
 					back != null && back.command().equals(spec.command()));
+
+			if (platform == Platform.WINDOWS) {
+				// Exercise the in-place upsert (ChangeServiceConfigW) on the real SCM: re-install
+				// the same id with a changed display name and confirm it stays installed/running.
+				mgr.install(spec.toBuilder().displayName("ServicePal self-test (upsert)").build());
+				final ServiceStatus after = mgr.status(ID);
+				failures += check("upsert keeps it installed", after.installed());
+				failures += check("upsert keeps it running", after.state() == RunState.RUNNING);
+			}
 		} catch (final Throwable t) {
 			System.out.println("SELFTEST ERROR: " + t);
 			t.printStackTrace(System.out);
