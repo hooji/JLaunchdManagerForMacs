@@ -57,8 +57,8 @@ public final class DiscoverCli {
 		try {
 			discovery = mgr.discover();
 		} catch (final UnsupportedOperationException e) {
-			System.out.println("Discovery is implemented for macOS in this build.");
-			System.out.println("This platform's backend is coming next: " + e.getMessage());
+			System.out.println("Discovery isn't implemented for this platform yet.");
+			System.out.println("Supported now: macOS, systemd, OpenRC. " + e.getMessage());
 			return;
 		}
 

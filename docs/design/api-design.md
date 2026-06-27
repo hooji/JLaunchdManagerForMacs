@@ -9,7 +9,8 @@
 > - ✅ **Linux/systemd** — discovery + inspection + mutation (services); validated on real systemd
 >   via the probe. **`.timer` scheduling deferred** → systemd reports `calendar`/`interval`
 >   capabilities as `false` for now, so scheduled specs fail fast there.
-> - ⬜ **Linux/OpenRC** — pending (small; subprocess + shell-script renderer, no FFM).
+> - ✅ **Linux/OpenRC** — discovery + inspection + mutation (services). SYSTEM_WIDE-only and no
+>   native scheduler, so `perUserInstall`/`calendar`/`interval` are `false` (those fail fast).
 > - ⬜ **Windows** — pending; the biggest job. **Detailed build plan: `windows-implementation-plan.md`.**
 >
 > The design proved out essentially unchanged. The only notable in-flight refinement: discovery

@@ -17,7 +17,8 @@ Per platform, the library:
 
 - **macOS** — writes `.plist` files (file I/O); drives `launchctl` (subprocess).
 - **Linux/systemd** — writes `.service`/`.timer` INI units (file I/O); drives `systemctl`.
-- **Linux/non-systemd** — (later) generates init scripts; drives `rc-service`/`sv`/`service`.
+- **Linux/OpenRC** — writes init scripts (file I/O); drives `rc-service`/`rc-update` (subprocess).
+  Other non-systemd inits (runit/SysV) remain later/roadmap.
 - **Windows** — SCM via `advapi32` (Java FFM) and/or `sc.exe`; Task Scheduler via
   `schtasks`/PowerShell; **needs a service-host shim to run arbitrary commands as a
   service** (see the big quirk below).
@@ -25,11 +26,10 @@ Per platform, the library:
   it pays off (Windows SCM); everything else is subprocess. **All** native access sits
   behind stubbable interfaces so the library unit-tests off-platform.
 
-**Status:** _Research complete (step 1). Design phase (step 2) — not started._
-The single-platform API sketch near the bottom predates the cross-platform expansion
-and is **superseded** as the public design; it survives only as the macOS-backend shape.
-No implementation code has been written yet. Do not start implementing until the
-cross-platform API is designed and approved.
+**Status:** _Steps 1–2 done (research + approved API). Step 4 (per-platform backends) in progress._
+macOS, Linux/systemd, and Linux/OpenRC are implemented end-to-end; **Windows is the one
+remaining backend**. The single-platform API sketch near the bottom predates the cross-platform
+expansion and is **superseded** as the public design; it survives only as the macOS-backend shape.
 
 ## Project plan (owner's 5 steps)
 
@@ -37,8 +37,9 @@ cross-platform API is designed and approved.
 2. ✅ **Design an overarching API** that works across all platforms — done & approved.
    See `docs/design/api-design.md`.
 3. ⏳ **Design clean interop with each platform's native facilities** — underway alongside step 4.
-4. ⏳ **Implement per-platform modules** (macOS → systemd → OpenRC → Windows) — **macOS and
-   Linux/systemd complete** (discovery + inspection + mutation, see below); OpenRC is next.
+4. ⏳ **Implement per-platform modules** (macOS → systemd → OpenRC → Windows) — **macOS,
+   Linux/systemd, and Linux/OpenRC complete** (discovery + inspection + mutation, see below);
+   Windows is next.
 5. ⬜ Assemble the unified library behind one facade.
 
 ## Implementation status (live)
@@ -61,11 +62,21 @@ cross-platform API is designed and approved.
   `~/.config/systemd/user`; SYSTEM_WIDE → system manager + `/etc/systemd/system`. Full
   discovery + mutation. **Services only for now — `.timer` (calendar/interval) is deferred**,
   so systemd reports `calendar`/`interval` capabilities as false (scheduled jobs fail fast).
-- **48 unit tests**, all platform-independent (stubbed `CommandRunner`/`Launchctl`/`Systemctl`,
-  temp-dir definitions). GitHub Actions CI on ubuntu/macos/windows; the probe runs a real
-  `systemctl` lifecycle (sudo) on the ubuntu runner and a real launchd lifecycle on macOS.
-- **Not yet:** the **OpenRC/Windows** backends (an `UnimplementedBackend` reports platform +
-  intended capabilities but throws on use); systemd `.timer` scheduling.
+- **Done — Linux/OpenRC backend** (`internal/openrc`): writes init scripts to `/etc/init.d`
+  (POSIX shell sourcing `openrc-run`, marker comment `# X-ServicePal-Managed`), drives
+  `rc-service` (start/stop/restart/status) + `rc-update` (add/del for enable/disable). Full
+  discovery + mutation. **SYSTEM_WIDE-only** (no per-user → `perUserInstall` false); **no native
+  scheduler** (`calendar`/`interval` false → fail fast). Restart policy picks the supervisor:
+  `start-stop-daemon` (+`command_background`) for NEVER, else `supervise-daemon` (respawns on any
+  exit, so ON_FAILURE≈ALWAYS; ALWAYS just adds `respawn_max=0`). No `daemon-reload` analog —
+  install is file write + chmod +x. Live state via `rc-service status` (best-effort,
+  `structuredStatus` false); PID read from the pidfile. Seam = `RcService` (stub in tests).
+- **61 unit tests**, all platform-independent (stubbed `CommandRunner`/`Launchctl`/`Systemctl`/
+  `RcService`, temp-dir definitions). GitHub Actions CI on ubuntu/macos/windows; the probe runs a
+  real `systemctl` lifecycle (sudo) on the ubuntu runner, a real launchd lifecycle on macOS, and a
+  real `rc-service` lifecycle in an Alpine/OpenRC container.
+- **Not yet:** the **Windows** backend (an `UnimplementedBackend` reports platform + intended
+  capabilities but throws on use); systemd `.timer` scheduling.
 - **Refinements made during impl:**
   - `ServiceStatus` gained an `installation` field (handy for discovery grouping).
   - Discovery returns a **`Discovery(services, unreadable)`** — root-only/malformed plists are
@@ -101,12 +112,13 @@ cross-platform API is designed and approved.
 
 ## ▶ Next session: implement **Windows** (the big remaining job)
 
-Two backends remain: **Windows** (large — FFM service host + Task Scheduler; the pivotal SCM
-quirk) and **OpenRC** (small — subprocess + shell-script renderer, closest to the systemd shape;
-plus systemd `.timer` support). **Recommended next: Windows** — follow
-`docs/design/windows-implementation-plan.md` step by step, mirroring the existing
-`internal/{macos,systemd}` backends, and validate with the CI probe's `SelfTestCli` on the
-`windows-latest` runner (push to branch → probe → iterate → open the PR only once green).
+**Windows is the only backend left** (large — FFM service host + Task Scheduler; the pivotal SCM
+quirk). Follow `docs/design/windows-implementation-plan.md` step by step, mirroring the existing
+`internal/{macos,systemd,openrc}` backends, and validate with the CI probe's `SelfTestCli` on the
+`windows-latest` runner (push to branch → probe → iterate → open the PR only once green). It needs
+the **JDK 25 bump** (pom + CI) — FFM is preview in 21, final in 22 — so unlike the Mac/Linux
+backends it cannot be compiled or run on the JDK-21 toolchain; CI/probe is the validation loop.
+(Also still deferred: systemd `.timer` scheduling.)
 
 ## Owner-approved decisions (step 2)
 

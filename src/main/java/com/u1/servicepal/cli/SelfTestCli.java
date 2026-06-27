@@ -36,10 +36,10 @@ public final class SelfTestCli {
 				.autoStart(true);
 		if (platform == Platform.MACOS_LAUNCHD) {
 			builder.asCurrentUser();   // a per-user launchd agent; no root needed
-		} else if (platform == Platform.LINUX_SYSTEMD) {
+		} else if (platform == Platform.LINUX_SYSTEMD || platform == Platform.LINUX_OPENRC) {
 			if (!root) {
-				System.out.println("SELFTEST SKIP: the systemd self-test installs a system-wide"
-						+ " unit and needs sudo (this is " + platform + ", non-root)");
+				System.out.println("SELFTEST SKIP: the " + platform + " self-test installs a"
+						+ " system-wide service and needs root/sudo (this is non-root)");
 				return;
 			}
 			builder.asSystemDaemon();

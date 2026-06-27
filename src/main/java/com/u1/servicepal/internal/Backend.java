@@ -10,7 +10,8 @@ import java.util.List;
 
 /**
  * Internal per-platform contract (code organization only — <em>not</em> a public extension
- * point). This increment implements the read/discovery half; mutation arrives in step 4.
+ * point). Covers discovery/inspection and the mutation lifecycle. Implemented by the macOS,
+ * systemd, and OpenRC backends; the Windows backend is pending (see {@link UnimplementedBackend}).
  */
 public interface Backend {
 

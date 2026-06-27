@@ -7,7 +7,7 @@ name: Probe (cross-platform manual run)
 on:
   workflow_dispatch:
   push:
-    branches: [claude/java-launchd-api-design-zkcty4]
+    branches: [claude/java-launchd-api-design-zkcty4, claude/project-familiarization-axnrtj]
 
 permissions:
   contents: read
@@ -94,4 +94,9 @@ jobs:
           docker run --rm -v "$PWD:/w" -w /w alpine:latest sh -c '
             apk add --no-cache openjdk21-jre openrc >/dev/null &&
             echo "rc-service: $(command -v rc-service)" &&
-            java -jar target/servicepal.jar || true'
+            # Minimal OpenRC runtime state so rc-service can run in a non-booted container.
+            mkdir -p /run/openrc && touch /run/openrc/softlevel &&
+            echo "===== discovery =====" &&
+            (java -jar target/servicepal.jar || true) &&
+            echo "===== mutation self-test (root) =====" &&
+            (java -cp target/servicepal.jar com.u1.servicepal.cli.SelfTestCli || true)'
