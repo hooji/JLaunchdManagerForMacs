@@ -74,6 +74,10 @@ public final class DiscoverCli {
 		}
 
 		printGrouped(services);
+		if (mgr.platform() == com.u1.servicepal.Platform.MACOS_LAUNCHD) {
+			System.out.println("(STATE is UNKNOWN for system daemons unless run with sudo — "
+					+ "their live state lives in the root-only 'system' launchd domain.)");
+		}
 		printUnreadable(discovery.unreadable());
 
 		System.out.println();
@@ -114,8 +118,6 @@ public final class DiscoverCli {
 			}
 			System.out.println();
 		}
-		System.out.println("(STATE is UNKNOWN for system daemons unless run with sudo — "
-				+ "their live state lives in the root-only 'system' launchd domain.)");
 	}
 
 	private static void printUnreadable(final List<String> unreadable) {
