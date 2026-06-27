@@ -13,10 +13,6 @@ import java.util.List;
  * {@link Installation} (PER_USER first, then SYSTEM_WIDE), throwing
  * {@link AmbiguousServiceException} if an id exists in both — pass an explicit
  * {@code Installation} to disambiguate.
- *
- * <p><strong>Build status:</strong> discovery and inspection (list / read / status) are fully
- * implemented for macOS. Mutation (install/start/stop/…) and the systemd/OpenRC/Windows
- * backends throw {@link UnsupportedOperationException} for now (steps 4–5).
  */
 public interface ServiceManager {
 
@@ -72,7 +68,7 @@ public interface ServiceManager {
 
 	boolean isInstalled(String id, Installation installation);
 
-	// --- definition lifecycle (UPSERT) — implemented in step 4 ---
+	// --- definition lifecycle (upsert) ---
 
 	void install(ServiceSpec spec);
 
@@ -82,7 +78,7 @@ public interface ServiceManager {
 
 	void uninstall(String id, boolean yesDoThisToAServiceIDidNotCreate);
 
-	// --- run-now vs boot-persistence (separate axes) — implemented in step 4 ---
+	// --- run-now vs boot-persistence (separate axes) ---
 
 	void enable(String id);
 
@@ -94,7 +90,7 @@ public interface ServiceManager {
 
 	void restart(String id);
 
-	// --- convenience — implemented in step 4 ---
+	// --- convenience ---
 
 	void installEnableStart(ServiceSpec spec);
 }
