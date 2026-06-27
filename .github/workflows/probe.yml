@@ -36,6 +36,13 @@ jobs:
         shell: bash
         run: java -jar target/servicepal.jar || true
 
+      # Real mutation lifecycle (install -> start -> inspect -> uninstall) of a throwaway
+      # PER_USER agent. macOS does the real work; other platforms print SKIP. Non-fatal so the
+      # probe stays informational — read the SELFTEST PASS/FAIL line in the log.
+      - name: Probe — mutation self-test
+        shell: bash
+        run: java -cp target/servicepal.jar com.u1.servicepal.cli.SelfTestCli || true
+
       - name: Probe — run as root (macOS/Linux)
         if: runner.os != 'Windows'
         shell: bash
