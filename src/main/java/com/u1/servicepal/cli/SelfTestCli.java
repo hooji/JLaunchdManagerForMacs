@@ -43,6 +43,13 @@ public final class SelfTestCli {
 				return;
 			}
 			builder.asSystemDaemon();
+		} else if (platform == Platform.LINUX_OPENRC) {
+			if (!root) {
+				System.out.println("SELFTEST SKIP: the OpenRC self-test installs a system-wide"
+						+ " init script and needs sudo (this is " + platform + ", non-root)");
+				return;
+			}
+			builder.asSystemDaemon();   // OpenRC is SYSTEM_WIDE only
 		} else {
 			System.out.println("SELFTEST SKIP: mutation not implemented for " + platform);
 			return;

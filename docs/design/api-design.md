@@ -9,7 +9,11 @@
 > - ✅ **Linux/systemd** — discovery + inspection + mutation (services); validated on real systemd
 >   via the probe. **`.timer` scheduling deferred** → systemd reports `calendar`/`interval`
 >   capabilities as `false` for now, so scheduled specs fail fast there.
-> - ⬜ **Linux/OpenRC** — pending (small; subprocess + shell-script renderer, no FFM).
+> - ✅ **Linux/OpenRC** — discovery + inspection + mutation. Writes `/etc/init.d` scripts
+>   (`openrc-run`), drives `rc-service` (run-now) + `rc-update` (boot, via `/etc/runlevels`).
+>   SYSTEM_WIDE only (`perUserInstall=false`); no native scheduler (`calendar`/`interval` false).
+>   Restart policy → supervisor: `NEVER` = backgrounded `start-stop-daemon`, `ON_FAILURE`/`ALWAYS`
+>   = `supervise-daemon`.
 > - ⬜ **Windows** — pending; the biggest job. **Detailed build plan: `windows-implementation-plan.md`.**
 >
 > The design proved out essentially unchanged. The only notable in-flight refinement: discovery

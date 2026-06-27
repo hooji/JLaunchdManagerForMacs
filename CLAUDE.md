@@ -37,8 +37,9 @@ cross-platform API is designed and approved.
 2. ✅ **Design an overarching API** that works across all platforms — done & approved.
    See `docs/design/api-design.md`.
 3. ⏳ **Design clean interop with each platform's native facilities** — underway alongside step 4.
-4. ⏳ **Implement per-platform modules** (macOS → systemd → OpenRC → Windows) — **macOS and
-   Linux/systemd complete** (discovery + inspection + mutation, see below); OpenRC is next.
+4. ⏳ **Implement per-platform modules** (macOS → systemd → OpenRC → Windows) — **macOS,
+   Linux/systemd, and Linux/OpenRC complete** (discovery + inspection + mutation, see below);
+   **Windows is the last remaining backend**.
 5. ⬜ Assemble the unified library behind one facade.
 
 ## Implementation status (live)
@@ -61,11 +62,21 @@ cross-platform API is designed and approved.
   `~/.config/systemd/user`; SYSTEM_WIDE → system manager + `/etc/systemd/system`. Full
   discovery + mutation. **Services only for now — `.timer` (calendar/interval) is deferred**,
   so systemd reports `calendar`/`interval` capabilities as false (scheduled jobs fail fast).
-- **48 unit tests**, all platform-independent (stubbed `CommandRunner`/`Launchctl`/`Systemctl`,
-  temp-dir definitions). GitHub Actions CI on ubuntu/macos/windows; the probe runs a real
-  `systemctl` lifecycle (sudo) on the ubuntu runner and a real launchd lifecycle on macOS.
-- **Not yet:** the **OpenRC/Windows** backends (an `UnimplementedBackend` reports platform +
-  intended capabilities but throws on use); systemd `.timer` scheduling.
+- **Done — Linux/OpenRC backend** (`internal/openrc`): writes `/etc/init.d` scripts (POSIX shell
+  sourcing `openrc-run`, marker comment `# X-ServicePal-Managed: 1`, made executable), drives
+  `rc-service` (start/stop/restart/status) and `rc-update add|del <svc> <runlevel>` for boot
+  persistence. **SYSTEM_WIDE only** (no per-user model on OpenRC → `perUserInstall=false`, so a
+  PER_USER spec fails fast); **no native scheduler** (`calendar`/`interval` false). Restart policy
+  → supervisor: `NEVER` = backgrounded `start-stop-daemon` (`command_background=true`),
+  `ON_FAILURE`/`ALWAYS` = `supervise-daemon` (`ALWAYS` sets `respawn_max=0`). `enabled` is read
+  from runlevel symlinks under `/etc/runlevels`; pid/exit are left null (`structuredStatus=false`).
+  Seam: `RcService` (+`DefaultRcService` subprocess); renderer/parser `RcScriptWriter`/`RcScriptReader`.
+- **67 unit tests**, all platform-independent (stubbed `CommandRunner`/`Launchctl`/`Systemctl`/
+  `RcService`, temp-dir definitions). GitHub Actions CI on ubuntu/macos/windows; the probe runs a
+  real `systemctl` lifecycle (sudo) on the ubuntu runner, a real launchd lifecycle on macOS, and a
+  real OpenRC lifecycle in an Alpine/OpenRC container.
+- **Not yet:** the **Windows** backend (an `UnimplementedBackend` reports platform + intended
+  capabilities but throws on use); systemd `.timer` scheduling.
 - **Refinements made during impl:**
   - `ServiceStatus` gained an `installation` field (handy for discovery grouping).
   - Discovery returns a **`Discovery(services, unreadable)`** — root-only/malformed plists are
@@ -101,11 +112,10 @@ cross-platform API is designed and approved.
 
 ## ▶ Next session: implement **Windows** (the big remaining job)
 
-Two backends remain: **Windows** (large — FFM service host + Task Scheduler; the pivotal SCM
-quirk) and **OpenRC** (small — subprocess + shell-script renderer, closest to the systemd shape;
-plus systemd `.timer` support). **Recommended next: Windows** — follow
-`docs/design/windows-implementation-plan.md` step by step, mirroring the existing
-`internal/{macos,systemd}` backends, and validate with the CI probe's `SelfTestCli` on the
+**Windows is the only remaining backend** (large — FFM service host + Task Scheduler; the pivotal
+SCM quirk). OpenRC is now complete; systemd `.timer` scheduling is still deferred (small, optional).
+Follow `docs/design/windows-implementation-plan.md` step by step, mirroring the existing
+`internal/{macos,systemd,openrc}` backends, and validate with the CI probe's `SelfTestCli` on the
 `windows-latest` runner (push to branch → probe → iterate → open the PR only once green).
 
 ## Owner-approved decisions (step 2)
