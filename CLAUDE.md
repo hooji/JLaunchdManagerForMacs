@@ -201,8 +201,14 @@ No UI — API only. The library:
 - Develop on the assigned branch (see top). When you **wrap up a job that warrants a release**,
   push a **PR from your branch to `main`**. The owner will **immediately merge** it, which
   triggers the automated release build (`version-bump.yml` → tag → `release.yml`).
+- **⚠️ Open the PR only as the LAST action of the turn — never open it and then keep pushing.**
+  The owner merges a PR the moment it appears, so an open PR must be *finished, validated work*.
+  Push commits to the **branch** freely during the turn (branch pushes trigger CI + the probe,
+  which is how you iterate) — but **do not call `create_pull_request` until every commit is
+  pushed and CI/probe is green.** Opening the PR early caused a race where a mid-iteration fix
+  nearly missed the merge.
 - **On your next turn, assume that PR was merged.** Keep using the **same assigned branch**;
-  subsequent commits accrue into the **next** PR when you push it. (Each merge to `main` cuts a
+  subsequent commits accrue into the **next** PR when you open it. (Each merge to `main` cuts a
   new release, so group changes into release-worthy units.)
 - Release plumbing: `release.yml` (tag-driven build of fat jar + sources jar) and
   `version-bump.yml` (PR-merge → next version from latest `v*` tag; `release:minor`/`major`
