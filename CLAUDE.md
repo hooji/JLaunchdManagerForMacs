@@ -34,11 +34,34 @@ cross-platform API is designed and approved.
 ## Project plan (owner's 5 steps)
 
 1. ✅ **Research all platforms & document quirks** — done. See `docs/research/`.
-2. ⏳ **Design an overarching API** that works across all platforms — **proposal written**,
-   pending final approval. See `docs/design/api-design.md`.
-3. ⬜ Design clean interop with each platform's native facilities.
-4. ⬜ Implement per-platform modules one at a time (macOS → systemd → OpenRC → Windows).
+2. ✅ **Design an overarching API** that works across all platforms — done & approved.
+   See `docs/design/api-design.md`.
+3. ⏳ **Design clean interop with each platform's native facilities** — underway alongside step 4.
+4. ⏳ **Implement per-platform modules** (macOS → systemd → OpenRC → Windows) — **started**:
+   macOS discovery/inspection slice is implemented end-to-end (see below).
 5. ⬜ Assemble the unified library behind one facade.
+
+## Implementation status (live)
+
+- **Build:** Maven, `mvn verify`. Compiler `release` is **21 for now** (the implemented
+  macOS/Linux paths are subprocess + file I/O, no FFM) — rises to **JDK 25** when the Windows
+  FFM service host lands (see `pom.xml` comment). Matches the roadmap's lower-JDK Mac/Linux build.
+- **Done:** full public model (`ServiceSpec`/`RunAs`/`Schedule`/`ServiceStatus`/`Capabilities`/
+  exceptions), `ServiceManager` facade, platform detection, and the **macOS launchd
+  discovery/inspection backend** (`list`/`listManaged`/`read`/`readNative`/`status`/`isInstalled`/
+  `isManaged`, auto-resolution + ambiguity). Plist reading via `dd-plist` (confined to
+  `internal/macos/PlistReader`); live state via `launchctl list`. A discovery **CLI**
+  (`com.u1.servicepal.cli.DiscoverCli`, the shaded `target/servicepal.jar`). 19 unit tests,
+  all platform-independent (stubbed `CommandRunner`/`Launchctl`, temp-dir plists). GitHub Actions
+  CI on ubuntu/macos/windows.
+- **Not yet:** all **mutation** (`install`/`uninstall`/`start`/`stop`/`enable`/`disable`) — throws
+  `UnsupportedOperationException`; the **systemd/OpenRC/Windows** backends (an `UnimplementedBackend`
+  reports platform + intended capabilities but throws on use).
+- **Refinement made during impl:** `ServiceStatus` gained an `installation` field (handy for
+  discovery grouping; not in the original design sketch). Native access stays behind the
+  `CommandRunner`/`Launchctl` interfaces so everything unit-tests off-platform.
+- **Testing reach:** GitHub CI covers all three OSes for build+unit tests; full launchd behavior
+  is best verified on a real Mac (owner runs macOS). The discovery CLI is the manual smoke test.
 
 ## Design docs (step 2)
 
