@@ -41,6 +41,18 @@ On macOS it enumerates the launchd jobs in `~/Library/LaunchAgents`,
 `/Library/LaunchDaemons`, and `/Library/LaunchAgents`, enriched with live state from
 `launchctl list`. On other platforms it prints a friendly "not implemented yet" note.
 
+## Releases
+
+Releases are automated (see `.github/workflows/`):
+
+- **Tag Release** (`release.yml`) — on a pushed `v*` tag (or manual dispatch), builds and
+  publishes a GitHub Release with `servicepal-<version>.jar` (runnable fat jar) and
+  `servicepal-<version>-sources.jar`. The version comes from the tag via `-Drevision`.
+- **Bump version and release** (`version-bump.yml`) — when a PR is merged into `main`,
+  computes the next version from the latest `v*` tag (patch by default; `release:minor` /
+  `release:major` PR labels override; `release:skip` label or `[skip release]` in the title
+  opts out), pushes the tag, and dispatches Tag Release. Also runnable manually.
+
 ## Layout
 
 - `docs/research/` — per-platform research + the cross-platform synthesis.

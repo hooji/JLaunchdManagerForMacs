@@ -6,7 +6,8 @@
 
 	<groupId>com.u1.servicepal</groupId>
 	<artifactId>servicepal</artifactId>
-	<version>0.1.0-SNAPSHOT</version>
+	<!-- CI-friendly version: release builds override with -Drevision=<tag-without-v>. -->
+	<version>${revision}</version>
 	<packaging>jar</packaging>
 
 	<name>ServicePalForJava</name>
@@ -15,6 +16,8 @@
 
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<!-- Default version for local/dev builds; release.yml overrides via -Drevision. -->
+		<revision>0.1.0-SNAPSHOT</revision>
 		<!--
 			Baseline is JDK 25 LTS once the Windows FFM service host (step 4) lands — FFM is
 			final in JDK 22 and 25 is the first LTS with it final. The current modules (macOS
@@ -57,6 +60,22 @@
 				<version>3.2.5</version>
 			</plugin>
 
+			<!-- Sources jar (servicepal-<version>-sources.jar) for IDE attachment / releases. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-source-plugin</artifactId>
+				<version>3.3.1</version>
+				<executions>
+					<execution>
+						<id>attach-sources</id>
+						<phase>package</phase>
+						<goals>
+							<goal>jar-no-fork</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+
 			<!-- Build a runnable uber-jar (includes dd-plist) for the discovery CLI. -->
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
@@ -69,6 +88,7 @@
 							<goal>shade</goal>
 						</goals>
 						<configuration>
+							<createDependencyReducedPom>false</createDependencyReducedPom>
 							<transformers>
 								<transformer
 										implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
