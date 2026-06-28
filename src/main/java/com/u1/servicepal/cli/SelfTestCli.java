@@ -112,10 +112,10 @@ public final class SelfTestCli {
 			failures++;
 		}
 
-		// systemd: also exercise a real scheduled job (.timer). `start` arms the timer, so a
-		// malformed OnCalendar would make systemd reject the unit and fail here — exactly the kind
-		// of real-systemd bug unit tests can't see.
-		if (platform == Platform.LINUX_SYSTEMD && root) {
+		// Linux: also exercise a real scheduled job. On systemd that arms a real `.timer` (a bad
+		// OnCalendar would fail here); on OpenRC it round-trips a real crontab entry via busybox
+		// `crontab` — both are real-system paths unit tests can't see.
+		if ((platform == Platform.LINUX_SYSTEMD || platform == Platform.LINUX_OPENRC) && root) {
 			failures += scheduledSelfTest(mgr);
 		}
 
@@ -126,7 +126,10 @@ public final class SelfTestCli {
 		}
 	}
 
-	/** Install → arm → inspect → uninstall a throwaway scheduled job (systemd {@code .timer}). */
+	/**
+	 * Install → arm → inspect → uninstall a throwaway scheduled job. On systemd this arms a real
+	 * {@code .timer}; on OpenRC it round-trips a real crontab entry (busybox {@code crontab}).
+	 */
 	private static int scheduledSelfTest(final ServiceManager mgr) {
 		final String sid = ID + ".scheduled";
 		int failures = 0;
@@ -140,12 +143,13 @@ public final class SelfTestCli {
 					.asSystemDaemon()
 					.schedule(Schedule.dailyAt(3, 30))
 					.build();
-			// start arms the .timer; systemd rejects (and this throws) if our OnCalendar is bad.
+			// enable arms it: systemd `start <unit>.timer` rejects a bad OnCalendar; OpenRC writes a
+			// real crontab entry. Either failure surfaces here.
 			mgr.installEnableStart(scheduled);
 			final ServiceStatus st = mgr.status(sid);
 			System.out.println("scheduled: installed=" + st.installed() + " enabled=" + st.enabled());
 			failures += check("scheduled: installed", st.installed());
-			failures += check("scheduled: timer enabled/armed", st.enabled());
+			failures += check("scheduled: enabled/armed", st.enabled());
 			final ServiceSpec back = mgr.read(sid);
 			failures += check("scheduled: schedule round-trips",
 					back != null && back.schedule() instanceof CalendarSchedule);

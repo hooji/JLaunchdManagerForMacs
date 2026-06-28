@@ -11,7 +11,9 @@ import com.u1.servicepal.UnsupportedFeatureException;
 import com.u1.servicepal.internal.Backend;
 import com.u1.servicepal.internal.exec.DefaultCommandRunner;
 import com.u1.servicepal.model.Discovery;
+import com.u1.servicepal.model.RunAs;
 import com.u1.servicepal.model.RunState;
+import com.u1.servicepal.model.Schedule;
 import com.u1.servicepal.model.ServiceSpec;
 import com.u1.servicepal.model.ServiceStatus;
 import com.u1.servicepal.model.options.OpenRcOptions;
@@ -27,33 +29,40 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Linux/OpenRC backend. Writes init scripts to {@code /etc/init.d} and drives
- * {@code rc-service} / {@code rc-update}. OpenRC has no per-user services and no native
- * scheduler, so it is SYSTEM_WIDE-only and reports {@code calendar}/{@code interval} as
- * unsupported (scheduled specs fail fast in the facade). There is no {@code daemon-reload}
- * equivalent — OpenRC reads the script on demand — so install/uninstall is just file I/O plus
- * lifecycle commands.
+ * Linux/OpenRC backend. A <strong>daemon</strong> is an init script in {@code /etc/init.d} driven by
+ * {@code rc-service} / {@code rc-update}. OpenRC has no per-user services (SYSTEM_WIDE-only) and no
+ * native scheduler, so a <strong>scheduled</strong> job is a <em>cron fallback</em>: the init script
+ * is the definition record (carrying a {@code X-ServicePal-Schedule} marker, never added to a
+ * runlevel) and a crontab entry (added on {@code enable}) runs the command. Calendar schedules map
+ * cleanly to cron; intervals only when the period divides a minute/hour (else {@code CronSchedule}
+ * fails fast). There is no {@code daemon-reload} equivalent — OpenRC reads the script on demand.
  */
 public final class OpenRcBackend implements Backend {
 
+	/** Comment that tags our managed cron entries in the crontab (followed by the service id). */
+	private static final String CRON_TAG = "# X-ServicePal:";
+
 	private final RcService rc;
+	private final Cron cron;
 	private final Path initdDir;
 	private final Path runlevelsDir;
 	private final Path runDir;
 	private final OpenRcScriptReader reader = new OpenRcScriptReader();
 	private final OpenRcScriptWriter writer = new OpenRcScriptWriter();
 
-	public OpenRcBackend(final RcService rc, final Path initdDir, final Path runlevelsDir,
-			final Path runDir) {
+	public OpenRcBackend(final RcService rc, final Cron cron, final Path initdDir,
+			final Path runlevelsDir, final Path runDir) {
 		this.rc = rc;
+		this.cron = cron;
 		this.initdDir = initdDir;
 		this.runlevelsDir = runlevelsDir;
 		this.runDir = runDir;
 	}
 
-	/** Real OpenRC wiring: the standard paths + the {@code rc-*} subprocesses. */
+	/** Real OpenRC wiring: the standard paths + the {@code rc-*} / {@code crontab} subprocesses. */
 	public static OpenRcBackend createDefault() {
-		return new OpenRcBackend(new DefaultRcService(new DefaultCommandRunner()),
+		final DefaultCommandRunner runner = new DefaultCommandRunner();
+		return new OpenRcBackend(new DefaultRcService(runner), new DefaultCron(runner),
 				Path.of("/etc/init.d"), Path.of("/etc/runlevels"), Path.of("/run"));
 	}
 
@@ -64,9 +73,10 @@ public final class OpenRcBackend implements Backend {
 
 	@Override
 	public Capabilities capabilities() {
-		// No per-user install, no calendar/interval scheduling, no conditional keep-alive, and
-		// status is best-effort (structuredStatus=false). Matches the design's OpenRC row.
-		return new Capabilities(false, true, true, false, false, true, false, true, false);
+		// No per-user install and no conditional keep-alive; status is best-effort
+		// (structuredStatus=false). Scheduling is via a cron fallback — calendar fully, intervals
+		// only when the period divides a minute/hour (CronSchedule fails fast otherwise).
+		return new Capabilities(false, true, true, true, true, true, false, true, false);
 	}
 
 	@Override
@@ -104,7 +114,13 @@ public final class OpenRcBackend implements Backend {
 		if (file == null) {
 			return null;
 		}
-		return reader.toSpec(reader.parseFile(file), installation, id, isEnabled(id));
+		final Map<String, String> script = reader.parseFile(file);
+		final ServiceSpec base = reader.toSpec(script, installation, id, isEnabled(id));
+		if (reader.isScheduled(script)) {
+			final Schedule schedule = reader.scheduleOf(script);
+			return schedule == null ? base : base.toBuilder().schedule(schedule).build();
+		}
+		return base;
 	}
 
 	@Override
@@ -137,9 +153,15 @@ public final class OpenRcBackend implements Backend {
 		if (installation != Installation.SYSTEM_WIDE) {
 			throw new UnsupportedFeatureException("per-user installation", Platform.LINUX_OPENRC);
 		}
+		final boolean scheduled = spec.schedule() != null;
+		if (scheduled) {
+			CronSchedule.toCronLine(spec.schedule());   // fail fast on a cron-inexpressible interval
+		}
 		final Path file = initdDir.resolve(spec.id());
 
 		boolean adopted = false;
+		boolean wasManagedDaemon = false;
+		boolean wasScheduled = false;
 		if (Files.isRegularFile(file)) {
 			Map<String, String> existing = null;
 			try {
@@ -152,6 +174,16 @@ public final class OpenRcBackend implements Backend {
 				throw new UnmanagedServiceException(spec.id());
 			}
 			adopted = existingManaged ? reader.isAdopted(existing) : true;
+			wasScheduled = existing != null && reader.isScheduled(existing);
+			wasManagedDaemon = existingManaged && !wasScheduled;
+		}
+
+		// Mode-switch cleanup: drop the old activation when changing daemon <-> scheduled.
+		if (scheduled && wasManagedDaemon) {
+			final String oldRunlevel = runlevelOf(file);
+			ignoreFailure(() -> rc.del(spec.id(), oldRunlevel));   // was a boot daemon
+		} else if (!scheduled && wasScheduled) {
+			removeCronEntry(spec.id());                            // was a cron job
 		}
 
 		final String runlevel = runlevelOf(spec);
@@ -181,9 +213,13 @@ public final class OpenRcBackend implements Backend {
 				throw new UnmanagedServiceException(id);
 			}
 		}
-		final String runlevel = runlevelOf(file);
-		ignoreFailure(() -> rc.stop(id));
-		ignoreFailure(() -> rc.del(id, runlevel));
+		if (isScheduledScript(file)) {
+			removeCronEntry(id);   // a cron job: no rc-service/runlevel to tear down
+		} else {
+			final String runlevel = runlevelOf(file);
+			ignoreFailure(() -> rc.stop(id));
+			ignoreFailure(() -> rc.del(id, runlevel));
+		}
 		try {
 			Files.deleteIfExists(file);
 		} catch (final IOException e) {
@@ -193,29 +229,49 @@ public final class OpenRcBackend implements Backend {
 
 	@Override
 	public void enable(final String id, final Installation installation) {
-		rc.add(id, runlevelOf(require(id, installation)));
+		final Path file = require(id, installation);
+		final Map<String, String> script = reader.parseFile(file);
+		if (reader.isScheduled(script)) {
+			addCronEntry(id, script, installation);   // arm the cron entry
+		} else {
+			rc.add(id, runlevelOf(file));
+		}
 	}
 
 	@Override
 	public void disable(final String id, final Installation installation) {
-		rc.del(id, runlevelOf(require(id, installation)));
+		final Path file = require(id, installation);
+		if (reader.isScheduled(reader.parseFile(file))) {
+			removeCronEntry(id);
+		} else {
+			rc.del(id, runlevelOf(file));
+		}
 	}
 
 	@Override
 	public void start(final String id, final Installation installation) {
-		require(id, installation);
+		final Path file = require(id, installation);
+		if (reader.isScheduled(reader.parseFile(file))) {
+			return;   // a scheduled job runs on its schedule; "start now" is a no-op
+		}
 		rc.start(id);
 	}
 
 	@Override
 	public void stop(final String id, final Installation installation) {
-		require(id, installation);
+		final Path file = require(id, installation);
+		if (reader.isScheduled(reader.parseFile(file))) {
+			return;   // a scheduled job has no long-running process to stop
+		}
 		rc.stop(id);
 	}
 
 	@Override
 	public void restart(final String id, final Installation installation) {
-		require(id, installation);
+		final Path file = require(id, installation);
+		if (reader.isScheduled(reader.parseFile(file))) {
+			return;   // a scheduled job runs on its schedule; nothing to restart now
+		}
 		rc.restart(id);
 	}
 
@@ -223,6 +279,12 @@ public final class OpenRcBackend implements Backend {
 		final String id = file.getFileName().toString();
 		final boolean managed = reader.isManaged(script);
 		final boolean adopted = managed && reader.isAdopted(script);
+		if (reader.isScheduled(script)) {
+			// A cron job: "enabled" = its cron entry is present. It has no long-running process, so
+			// it reads STOPPED between runs (the GUI relabels a scheduled job "Scheduled").
+			return new ServiceStatus(id, Installation.SYSTEM_WIDE, true, hasCronEntry(id), managed,
+					adopted, RunState.STOPPED, null, null, null);
+		}
 		final boolean enabled = isEnabled(id);
 		final RunState state = runState(rc.status(id).status());
 		return new ServiceStatus(id, Installation.SYSTEM_WIDE, true, enabled, managed, adopted, state,
@@ -324,6 +386,80 @@ public final class OpenRcBackend implements Backend {
 			// Non-POSIX filesystem (e.g. a Windows CI runner exercising the unit tests): the
 			// executable bit is meaningless there, so this is a best-effort no-op.
 			file.toFile().setExecutable(true);
+		}
+	}
+
+	// --- cron entries (the execution side of a scheduled job) ---
+
+	/** Add (or replace) the crontab entry that runs this scheduled job's command. */
+	private void addCronEntry(final String id, final Map<String, String> script,
+			final Installation installation) {
+		final ServiceSpec spec = reader.toSpec(script, installation, id, false);
+		final String cronLine = CronSchedule.toCronLine(reader.scheduleOf(script));
+		putCronEntry(id, cronLine, cronCommand(spec));
+	}
+
+	private void putCronEntry(final String id, final String cronLine, final String command) {
+		final StringBuilder sb = new StringBuilder(removeCronBlock(cron.read(), id));
+		if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '\n') {
+			sb.append('\n');
+		}
+		sb.append(CRON_TAG).append(' ').append(id).append('\n');
+		sb.append(cronLine).append(' ').append(command).append('\n');
+		cron.write(sb.toString());
+	}
+
+	private void removeCronEntry(final String id) {
+		final String before = cron.read();
+		final String after = removeCronBlock(before, id);
+		if (!after.equals(before)) {
+			cron.write(after);
+		}
+	}
+
+	private boolean hasCronEntry(final String id) {
+		final String marker = (CRON_TAG + " " + id);
+		for (final String line : cron.read().split("\n", -1)) {
+			if (line.strip().equals(marker)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Drop our {@code # X-ServicePal: <id>} tag line and the cron entry line that follows it. */
+	private static String removeCronBlock(final String crontab, final String id) {
+		final String marker = (CRON_TAG + " " + id);
+		final String[] lines = crontab.split("\n", -1);
+		final StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < lines.length; i++) {
+			if (lines[i].strip().equals(marker)) {
+				i++;   // also skip the cron entry line immediately after the tag
+				continue;
+			}
+			if (sb.length() > 0) {
+				sb.append('\n');
+			}
+			sb.append(lines[i]);
+		}
+		return sb.toString();
+	}
+
+	/** The shell command crond runs — directly as root, or via {@code su} for a named user. */
+	private static String cronCommand(final ServiceSpec spec) {
+		final String joined = String.join(" ", spec.command());
+		if (spec.runAs().kind() == RunAs.Kind.NAMED_USER) {
+			return "su -s /bin/sh " + spec.runAs().userName() + " -c \""
+					+ joined.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+		}
+		return joined;
+	}
+
+	private boolean isScheduledScript(final Path file) {
+		try {
+			return reader.isScheduled(reader.parseFile(file));
+		} catch (final DefinitionIOException e) {
+			return false;
 		}
 	}
 

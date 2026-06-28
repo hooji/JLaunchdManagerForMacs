@@ -27,6 +27,9 @@ public final class OpenRcScriptReader {
 	/** Marker comment set when we install over a service we did not create. */
 	public static final String ADOPTED_MARKER = "X-ServicePal-Adopted";
 
+	/** Marker comment recording the {@link com.u1.servicepal.model.Schedule} of a scheduled job. */
+	public static final String SCHEDULE_MARKER = "X-ServicePal-Schedule";
+
 	/** Marker comment recording the runlevel chosen at install (for enable/disable). */
 	public static final String RUNLEVEL_MARKER = "X-ServicePal-Runlevel";
 
@@ -81,7 +84,7 @@ public final class OpenRcScriptReader {
 		}
 		final String key = comment.substring(0, colon).strip();
 		if (key.equals(MANAGED_MARKER) || key.equals(RUNLEVEL_MARKER)
-				|| key.equals(ADOPTED_MARKER)) {
+				|| key.equals(ADOPTED_MARKER) || key.equals(SCHEDULE_MARKER)) {
 			values.put(key, comment.substring(colon + 1).strip());
 		}
 	}
@@ -93,6 +96,16 @@ public final class OpenRcScriptReader {
 	/** Whether we manage this script but did not originally create it. */
 	public boolean isAdopted(final Map<String, String> script) {
 		return script.containsKey(ADOPTED_MARKER);
+	}
+
+	/** Whether this script is a scheduled job (carries a schedule marker). */
+	public boolean isScheduled(final Map<String, String> script) {
+		return script.containsKey(SCHEDULE_MARKER);
+	}
+
+	/** The {@link com.u1.servicepal.model.Schedule} recorded in the script, or {@code null}. */
+	public com.u1.servicepal.model.Schedule scheduleOf(final Map<String, String> script) {
+		return CronSchedule.decodeMarker(script.get(SCHEDULE_MARKER));
 	}
 
 	/** The runlevel recorded in the script, or {@link #DEFAULT_RUNLEVEL} if none. */
