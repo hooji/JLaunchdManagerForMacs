@@ -4,24 +4,68 @@ import java.util.ArrayList;
 import java.util.List;
 import javax.swing.table.AbstractTableModel;
 
-/** Backs the master job list: one row per job, column 0 = the {@link Job}, column 1 = its state. */
+/**
+ * Backs the master job list. Each row is either a {@link Header} (a non-selectable section divider)
+ * or a {@link Job}. Jobs are split into two sections — the ones ServicePal created, then everything
+ * else discovered on the machine — so the two categories read as separate groups. Column 0 carries
+ * the row object (a {@link Header} or a {@link Job}); column 1 carries the run state (blank for a
+ * header).
+ */
 final class JobTableModel extends AbstractTableModel {
 
-	private final List<Job> jobs = new ArrayList<>();
+	/** A non-selectable section header row. */
+	record Header(String title, int count) {
+	}
+
+	private static final String MINE = "Created with ServicePal";
+	private static final String OTHERS = "Other background jobs";
+
+	private final List<Object> rows = new ArrayList<>();   // each element is a Header or a Job
 
 	void setJobs(final List<Job> newJobs) {
-		jobs.clear();
-		jobs.addAll(newJobs);
+		rows.clear();
+		final List<Job> mine = new ArrayList<>();
+		final List<Job> others = new ArrayList<>();
+		for (final Job job : newJobs) {
+			if (job.managed()) {
+				mine.add(job);
+			} else {
+				others.add(job);
+			}
+		}
+		if (!mine.isEmpty()) {
+			rows.add(new Header(MINE, mine.size()));
+			rows.addAll(mine);
+		}
+		if (!others.isEmpty()) {
+			rows.add(new Header(OTHERS, others.size()));
+			rows.addAll(others);
+		}
 		fireTableDataChanged();
 	}
 
+	boolean isHeader(final int row) {
+		return row >= 0 && row < rows.size() && rows.get(row) instanceof Header;
+	}
+
+	/** The job at {@code row}, or {@code null} if that row is a section header. */
 	Job jobAt(final int row) {
-		return jobs.get(row);
+		return rows.get(row) instanceof Job job ? job : null;
+	}
+
+	/** Index of the first job row (skipping the leading header), or -1 if there are no jobs. */
+	int firstJobRow() {
+		for (int i = 0; i < rows.size(); i++) {
+			if (rows.get(i) instanceof Job) {
+				return i;
+			}
+		}
+		return -1;
 	}
 
 	int indexOfId(final String id) {
-		for (int i = 0; i < jobs.size(); i++) {
-			if (jobs.get(i).id().equals(id)) {
+		for (int i = 0; i < rows.size(); i++) {
+			if (rows.get(i) instanceof Job job && job.id().equals(id)) {
 				return i;
 			}
 		}
@@ -30,7 +74,7 @@ final class JobTableModel extends AbstractTableModel {
 
 	@Override
 	public int getRowCount() {
-		return jobs.size();
+		return rows.size();
 	}
 
 	@Override
@@ -45,13 +89,17 @@ final class JobTableModel extends AbstractTableModel {
 
 	@Override
 	public Object getValueAt(final int rowIndex, final int columnIndex) {
-		final Job job = jobs.get(rowIndex);
+		final Object row = rows.get(rowIndex);
+		if (row instanceof Header header) {
+			return columnIndex == 0 ? header : "";
+		}
+		final Job job = (Job) row;
 		return columnIndex == 0 ? job : job.status().state();
 	}
 
 	@Override
 	public Class<?> getColumnClass(final int columnIndex) {
-		return columnIndex == 0 ? Job.class : Object.class;
+		return Object.class;
 	}
 
 	@Override

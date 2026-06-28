@@ -8,13 +8,30 @@ and hides every platform-specific capability the library otherwise offers.
 
 **In:** see your background jobs and whether each is running; add a job (name + command, optional
 working folder); choose *start automatically* and *what to do if it stops*; start / stop / restart;
-remove. The list shows only jobs ServicePal created (`listManaged()`), not the machine's hundreds of
-system services.
+remove. The list shows **every service the platform can discover** (`list()`), split into two
+sections: **“Created with ServicePal”** (fully actionable) and **“Other background jobs”**
+(everything else found on the machine, shown **read-only** — see below). On macOS that second group
+is the third-party launchd agents/daemons in `~/Library/LaunchAgents` and `/Library/Launch*`, not
+Apple’s hundreds of services under `/System/Library` (which the backend never touches).
 
 **Deliberately out (hidden):** schedules (calendar / interval), `RunAs` named-user / system-daemon
 selection, the per-platform option blocks (`.mac()/.systemd()/.windows()/.openrc()`), explicit
 `Installation` choice, env vars and log-file paths (a later "Advanced" disclosure). The UI is
 **identical on all four platforms**; only the native window chrome differs.
+
+## Two categories: yours vs. everything else
+
+`ServiceStatus.managed()` (the embedded marker) classifies each discovered service. The master list
+groups by it — managed jobs first, then the rest — with a non-selectable header row per section (a
+bold, muted label + count and a thin divider line). Header rows are skipped by mouse and keyboard
+selection (`JobListPanel.changeSelection`), so the two groups read as one continuous, navigable list.
+
+**Other (unmanaged) services are read-only.** Start / Stop / Restart / Edit / Remove are all disabled
+for them and the detail pane shows a muted “Not created with ServicePal — shown for reference (view
+only)” note. The reason is safety: `install`/`uninstall` on a service we didn’t create require the
+deliberately-awkward `yesDoThisToAServiceIDidNotCreate` override, which the GUI never exposes. The
+second group is there for **visibility** — “what else is set up to run on this machine” — not control.
+(On Windows, discovery is sidecar-scoped, so in practice only managed services appear there today.)
 
 ## The one cross-platform decision: the auto privilege model
 
@@ -90,7 +107,7 @@ All library calls run on a `SwingWorker` (the backends shell out to `launchctl` 
 
 | Action | Library call |
 |--------|--------------|
-| Load list | `listManaged()` + `read(id)` per row |
+| Load list | `list()` (all discovered) + `read(id, installation)` per row; grouped by `ServiceStatus.managed()` |
 | Save (new/edit) | `JobSpecs.fromForm` → `install(spec)`; then `enable` + `start` (or **`restart`** if a running job's runtime fields changed, so the edit applies on every platform — `JobsController.applySave`/`runtimeChanged`), else `disable` |
 | Start / Stop / Restart | `start` / `stop` / `restart(id)` |
 | Remove | `uninstall(id)` (with confirmation) |

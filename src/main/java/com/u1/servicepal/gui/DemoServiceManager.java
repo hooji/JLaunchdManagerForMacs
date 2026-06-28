@@ -36,12 +36,18 @@ public final class DemoServiceManager implements ServiceManager {
 		this.capabilities = capabilities;
 	}
 
-	/** Seed a pre-existing job (for demo data), bypassing {@link #install}. */
+	/** Seed a pre-existing managed job (for demo data), bypassing {@link #install}. */
 	public void seed(final ServiceSpec spec, final RunState state, final Integer pid,
 			final boolean enabled, final Integer lastExitCode) {
+		seed(spec, state, pid, enabled, lastExitCode, true);
+	}
+
+	/** Seed a pre-existing job, choosing whether it is one ServicePal created ({@code managed}). */
+	public void seed(final ServiceSpec spec, final RunState state, final Integer pid,
+			final boolean enabled, final Integer lastExitCode, final boolean managed) {
 		specs.put(spec.id(), spec);
 		statuses.put(spec.id(), new ServiceStatus(spec.id(), spec.runAs().installation(), true,
-				enabled, true, state, pid, lastExitCode, null));
+				enabled, managed, state, pid, lastExitCode, null));
 	}
 
 	@Override
@@ -77,12 +83,19 @@ public final class DemoServiceManager implements ServiceManager {
 
 	@Override
 	public List<ServiceStatus> listManaged() {
-		return list();   // everything in the demo is managed by us
+		final List<ServiceStatus> out = new ArrayList<>();
+		for (final ServiceStatus s : statuses.values()) {
+			if (s.managed()) {
+				out.add(s);
+			}
+		}
+		return out;
 	}
 
 	@Override
 	public boolean isManaged(final String id) {
-		return statuses.containsKey(id);
+		final ServiceStatus s = statuses.get(id);
+		return s != null && s.managed();
 	}
 
 	@Override
