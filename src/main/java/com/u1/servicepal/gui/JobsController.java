@@ -341,10 +341,16 @@ final class JobsController implements JobActions {
 	}
 
 	private static boolean needsPrivilegeHint(final String text) {
+		// Match only genuine permission failures. Notably NOT the bare word "root": launchctl
+		// appends "Try re-running the command as root for richer errors" to many failures
+		// (including the transient reload race on a per-user agent), which is not a privilege issue.
 		final String lower = text.toLowerCase();
-		return lower.contains("access is denied") || lower.contains("permission")
-				|| lower.contains("denied") || lower.contains("administrator")
-				|| lower.contains("root");
+		return lower.contains("access is denied")            // Windows
+				|| lower.contains("permission denied")        // POSIX
+				|| lower.contains("operation not permitted")  // POSIX EPERM
+				|| lower.contains("must be run as")
+				|| lower.contains("requires administrator")
+				|| lower.contains("administrator privilege");
 	}
 
 	private static JobForm toForm(final Job job) {

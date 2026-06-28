@@ -12,6 +12,13 @@ public final class RecordingLaunchctl implements Launchctl {
 	public final List<String> calls = new ArrayList<>();
 	public boolean bootoutFails = false;
 
+	/** Number of leading {@code bootstrap} calls that throw (to simulate the reload race). */
+	public int bootstrapFailures = 0;
+	/** Exit code for those simulated failures (5 = EIO, the transient race; non-5/37 = permanent). */
+	public int bootstrapFailureExitCode = 5;
+	public String bootstrapFailureMessage = "Bootstrap failed: 5: Input/output error";
+	private int bootstrapCalls = 0;
+
 	private final BiFunction<LaunchdDomain, String, ServiceRuntime> runtimeFn;
 
 	public RecordingLaunchctl() {
@@ -29,6 +36,11 @@ public final class RecordingLaunchctl implements Launchctl {
 
 	@Override
 	public void bootstrap(final LaunchdDomain domain, final Path plist) {
+		bootstrapCalls++;
+		if (bootstrapCalls <= bootstrapFailures) {
+			throw new NativeCommandException(List.of("launchctl", "bootstrap"),
+					bootstrapFailureExitCode, bootstrapFailureMessage);
+		}
 		calls.add("bootstrap " + domain + " " + plist);
 	}
 

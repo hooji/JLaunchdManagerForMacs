@@ -108,6 +108,15 @@ macOS-backend shape.
     no native friendly-name field (its `Label` is the id). systemd (`Description=`), OpenRC
     (`description=`), and Windows (sidecar JSON) already round-trip it. `install` rewrites the whole
     plist, so renames/clears never leave a stale key.
+  - **macOS upsert reload race fixed.** `install` reloads via `bootout`+`bootstrap`, but `bootout`
+    is asynchronous — a `bootstrap` issued before the old instance finishes unloading fails with
+    "Bootstrap failed: 5: Input/output error" (EIO) or EBUSY (37) and leaves the service booted out
+    (so the next start fails). `LaunchdBackend.reload` now retries the bootstrap with backoff
+    (`isTransientReloadError` → codes 5/37 + message match). Reproduced by `RenameProbeCli` /
+    `mac-rename-probe.yml` on real macOS runners (a service that's slow to stop + repeated renames
+    makes the race fire; it was green→red→green across the fix). This is a per-user (`gui/<uid>`)
+    path — no root needed. The GUI's "needs sudo" hint no longer fires on it (the matcher stopped
+    keying on launchctl's generic "re-run as root" advice).
   - `ServiceStatus` gained an `installation` field (handy for discovery grouping).
   - Discovery returns a **`Discovery(services, unreadable)`** — root-only/malformed plists are
     **reported by name**, not silently dropped (`ServiceManager.discover()`; `list()` is the
@@ -305,9 +314,12 @@ No UI — API only. The library:
   which is how you iterate) — but **do not call `create_pull_request` until every commit is
   pushed and CI/probe is green.** Opening the PR early caused a race where a mid-iteration fix
   nearly missed the merge.
-- **On your next turn, assume that PR was merged.** Keep using the **same assigned branch**;
-  subsequent commits accrue into the **next** PR when you open it. (Each merge to `main` cuts a
-  new release, so group changes into release-worthy units.)
+- **Always assume every PR you have already opened was merged.** The owner merges immediately, so
+  once a turn's work is complete, treat all prior PRs as merged into `main` — do **not** reopen,
+  reuse, append to, or check the status of a past PR. Keep using the **same assigned branch** (its
+  commits sit on top of the merged history), and when the current turn's work is complete and green,
+  open a **brand-new PR** for it. One completed unit of work → one new PR, every time. (Each merge to
+  `main` cuts a new release, so group changes into release-worthy units.)
 - Release plumbing: `release.yml` (tag-driven build of fat jar + sources jar) and
   `version-bump.yml` (PR-merge → next version from latest `v*` tag; `release:minor`/`major`
   labels or `release:skip` / `[skip release]` to control). See `README.md`.
