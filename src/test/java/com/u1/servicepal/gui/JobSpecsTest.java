@@ -9,6 +9,7 @@ import com.u1.servicepal.Installation;
 import com.u1.servicepal.model.RestartPolicy;
 import com.u1.servicepal.model.RunAs;
 import com.u1.servicepal.model.ServiceSpec;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -53,7 +54,10 @@ class JobSpecsTest {
 						"/var/backups", true, RestartPolicy.ON_FAILURE), PER_USER);
 
 		assertEquals("Nightly Backup", spec.displayName());
-		assertEquals("/var/backups", spec.workingDirectory().toString());
+		// Compare Path objects, not strings: Path.toString() uses the OS separator, so a string
+		// comparison would (correctly) differ on Windows (\var\backups). Both sides go through
+		// Path.of on the running OS, so this stays platform-independent.
+		assertEquals(Path.of("/var/backups"), spec.workingDirectory());
 		assertEquals(RestartPolicy.ON_FAILURE, spec.restart());
 		assertTrue(spec.autoStart());
 	}
