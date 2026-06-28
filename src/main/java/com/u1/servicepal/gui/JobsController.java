@@ -10,6 +10,7 @@ import java.awt.BorderLayout;
 import java.awt.Window;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComponent;
@@ -242,18 +243,52 @@ final class JobsController implements JobActions {
 	private void save(final JobForm form) {
 		final ServiceSpec spec = JobSpecs.fromForm(form, manager.capabilities());
 		runAsync("save the job", () -> {
-			manager.install(spec);
-			if (form.autoStart()) {
-				manager.enable(spec.id());
-				manager.start(spec.id());
-			} else {
-				try {
-					manager.disable(spec.id());
-				} catch (final RuntimeException ignored) {
-					// not all platforms allow disabling a never-enabled job; not fatal
-				}
-			}
+			// Capture the prior definition + run state so a changed command can be applied to a
+			// service that is already running. Otherwise the edit would not take effect until a
+			// manual restart on systemd/OpenRC/Windows (only macOS reloads on install).
+			final ServiceSpec previous = manager.read(spec.id());
+			final boolean wasRunning = manager.status(spec.id()).state() == RunState.RUNNING;
+			applySave(manager, previous, spec, wasRunning, form.autoStart());
 		}, spec.id());
+	}
+
+	/**
+	 * Apply a saved job: upsert the definition, then bring it to the requested state. If it was
+	 * already running and a runtime-affecting field changed, <em>restart</em> it so the new
+	 * definition takes effect on every platform (a cosmetic rename alone does not bounce it).
+	 * Package-visible and Swing-free so it unit-tests directly.
+	 */
+	static void applySave(final ServiceManager mgr, final ServiceSpec previous,
+			final ServiceSpec spec, final boolean wasRunning, final boolean autoStart) {
+		mgr.install(spec);
+		if (!autoStart) {
+			try {
+				mgr.disable(spec.id());
+			} catch (final RuntimeException ignored) {
+				// not all platforms allow disabling a never-enabled job; not fatal
+			}
+			return;
+		}
+		mgr.enable(spec.id());
+		if (!wasRunning) {
+			mgr.start(spec.id());
+		} else if (runtimeChanged(previous, spec)) {
+			mgr.restart(spec.id());   // apply the changed definition to the running instance
+		}
+		// running + only a cosmetic change (e.g. rename): leave it running as-is.
+	}
+
+	/** Whether a field that affects the running process changed (vs. just the display name). */
+	static boolean runtimeChanged(final ServiceSpec previous, final ServiceSpec next) {
+		if (previous == null) {
+			return true;
+		}
+		return !previous.command().equals(next.command())
+				|| !Objects.equals(previous.workingDirectory(), next.workingDirectory())
+				|| !previous.environment().equals(next.environment())
+				|| previous.restart() != next.restart()
+				|| !Objects.equals(previous.runAs(), next.runAs())
+				|| !Objects.equals(previous.schedule(), next.schedule());
 	}
 
 	/** Run a mutating op off the EDT, then refresh (selecting {@code idToSelect} if given). */
