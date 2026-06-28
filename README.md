@@ -6,6 +6,12 @@ services (daemons)** through one uniform API across **macOS, Linux, and Windows*
 Write the service definition once; ServicePal maps it onto each platform's native facilities
 and detects the platform at runtime:
 
+| Capability | macOS | systemd | OpenRC | Windows |
+|------|:----:|:-------:|:------:|:-------:|
+| **Discovery / inspection** (`list`, `read`, `status`) | ✅ | ✅ | ✅ | ✅ |
+| **Mutation** (`install`, `start`, `enable`, …) | ✅ | ✅ | ✅ | ✅ |
+
+
 | Platform | Backed by |
 |----------|-----------|
 | **macOS** | launchd — `.plist` files driven by `launchctl` |
