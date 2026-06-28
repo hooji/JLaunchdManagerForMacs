@@ -166,6 +166,11 @@ dispatcher), so the jar's role as the Windows "execution helper" is preserved.
 - **Auto privilege model** (`JobSpecs.fromForm` + `capabilities()`): per-user where supported
   (macOS/systemd → no admin, login start), else system daemon (Windows/OpenRC → boot start, needs
   elevation). The GUI never mentions `RunAs`/`Installation`.
+- **Edits apply to running jobs** (`JobsController.applySave`/`runtimeChanged`): Save **restarts** a
+  running job when a runtime field changed (command/folder/env/restart/run-as/schedule) so the edit
+  takes effect on every platform — `install` only reloads a running service on macOS, and `start` is
+  a no-op on systemd/OpenRC/Windows. A cosmetic-only change (rename) does not bounce it. (Safe now
+  that `restart` is reliable on all four platforms.)
 - **Depends only on the `ServiceManager` interface**, so a `DemoServiceManager` (in-memory fake) +
   `DemoData` drive demos/screenshots/tests. Library calls run off the EDT on `SwingWorker`s.
 - **Dark theme by default** on every platform: the JDK's built-in **Nimbus** L&F themed dark via a

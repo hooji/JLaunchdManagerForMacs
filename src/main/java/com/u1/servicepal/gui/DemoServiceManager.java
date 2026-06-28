@@ -28,6 +28,9 @@ public final class DemoServiceManager implements ServiceManager {
 	private final Map<String, ServiceStatus> statuses = new LinkedHashMap<>();
 	private int nextPid = 4800;
 
+	/** Ordered record of mutation calls, for tests (e.g. asserting restart-vs-start on edit). */
+	public final java.util.List<String> calls = new java.util.ArrayList<>();
+
 	public DemoServiceManager(final Platform platform, final Capabilities capabilities) {
 		this.platform = platform;
 		this.capabilities = capabilities;
@@ -131,6 +134,7 @@ public final class DemoServiceManager implements ServiceManager {
 
 	@Override
 	public void install(final ServiceSpec spec) {
+		calls.add("install " + spec.id());
 		final ServiceStatus prev = statuses.get(spec.id());
 		final RunState state = prev != null ? prev.state() : RunState.STOPPED;
 		final Integer pid = prev != null ? prev.pid() : null;
@@ -157,27 +161,32 @@ public final class DemoServiceManager implements ServiceManager {
 
 	@Override
 	public void enable(final String id) {
+		calls.add("enable " + id);
 		mutate(id, s -> withEnabled(s, true));
 	}
 
 	@Override
 	public void disable(final String id) {
+		calls.add("disable " + id);
 		mutate(id, s -> withEnabled(s, false));
 	}
 
 	@Override
 	public void start(final String id) {
+		calls.add("start " + id);
 		mutate(id, s -> withState(s, RunState.RUNNING, nextPid++));
 	}
 
 	@Override
 	public void stop(final String id) {
+		calls.add("stop " + id);
 		mutate(id, s -> withState(s, RunState.STOPPED, null));
 	}
 
 	@Override
 	public void restart(final String id) {
-		start(id);
+		calls.add("restart " + id);
+		mutate(id, s -> withState(s, RunState.RUNNING, nextPid++));
 	}
 
 	@Override

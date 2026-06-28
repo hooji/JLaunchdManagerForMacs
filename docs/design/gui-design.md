@@ -85,7 +85,7 @@ All library calls run on a `SwingWorker` (the backends shell out to `launchctl` 
 | Action | Library call |
 |--------|--------------|
 | Load list | `listManaged()` + `read(id)` per row |
-| Save (new/edit) | `JobSpecs.fromForm` → `install(spec)`; then `enable`+`start` if *start automatically*, else `disable` |
+| Save (new/edit) | `JobSpecs.fromForm` → `install(spec)`; then `enable` + `start` (or **`restart`** if a running job's runtime fields changed, so the edit applies on every platform — `JobsController.applySave`/`runtimeChanged`), else `disable` |
 | Start / Stop / Restart | `start` / `stop` / `restart(id)` |
 | Remove | `uninstall(id)` (with confirmation) |
 | Badge / privilege model | `platform()` / `capabilities()` |
