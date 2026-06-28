@@ -147,9 +147,15 @@ public final class SelfTestCli {
 			// real crontab entry. Either failure surfaces here.
 			mgr.installEnableStart(scheduled);
 			final ServiceStatus st = mgr.status(sid);
-			System.out.println("scheduled: installed=" + st.installed() + " enabled=" + st.enabled());
+			System.out.println("scheduled: installed=" + st.installed() + " enabled=" + st.enabled()
+					+ " nextRun=" + st.nextRun());
 			failures += check("scheduled: installed", st.installed());
 			failures += check("scheduled: enabled/armed", st.enabled());
+			// next-run is informational, not a gate: systemd only exposes NextElapseUSecRealtime once
+			// the timer is active (a non-booted CI VM may not reach timers.target), and OpenRC
+			// computes it. The parse + mapping are covered by unit tests.
+			System.out.println("  [INFO] scheduled: nextRun "
+					+ (st.nextRun() != null ? "exposed (" + st.nextRun() + ")" : "not exposed here"));
 			final ServiceSpec back = mgr.read(sid);
 			failures += check("scheduled: schedule round-trips",
 					back != null && back.schedule() instanceof CalendarSchedule);
