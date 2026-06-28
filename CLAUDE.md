@@ -76,12 +76,17 @@ macOS-backend shape.
 - **Done — Linux/OpenRC backend** (`internal/openrc`): writes init scripts to `/etc/init.d`
   (POSIX shell sourcing `openrc-run`, marker comment `# X-ServicePal-Managed`), drives
   `rc-service` (start/stop/restart/status) + `rc-update` (add/del for enable/disable). Full
-  discovery + mutation. **SYSTEM_WIDE-only** (no per-user → `perUserInstall` false); **no native
-  scheduler** (`calendar`/`interval` false → fail fast). Restart policy picks the supervisor:
-  `start-stop-daemon` (+`command_background`) for NEVER, else `supervise-daemon` (respawns on any
-  exit, so ON_FAILURE≈ALWAYS; ALWAYS just adds `respawn_max=0`). No `daemon-reload` analog —
-  install is file write + chmod +x. Live state via `rc-service status` (best-effort,
+  discovery + mutation. **SYSTEM_WIDE-only** (no per-user → `perUserInstall` false). Restart policy
+  picks the supervisor: `start-stop-daemon` (+`command_background`) for NEVER, else `supervise-daemon`
+  (respawns on any exit, so ON_FAILURE≈ALWAYS; ALWAYS just adds `respawn_max=0`). No `daemon-reload`
+  analog — install is file write + chmod +x. Live state via `rc-service status` (best-effort,
   `structuredStatus` false); PID read from the pidfile. Seam = `RcService` (stub in tests).
+  **Scheduling done via a cron fallback** (OpenRC has no native scheduler): a scheduled job's init
+  script is the definition record (with an `X-ServicePal-Schedule` marker, never added to a runlevel)
+  and `enable` writes a tagged crontab entry that runs the command (`Cron` seam → `crontab`;
+  `disable` removes it; start/stop/restart are no-ops; status `enabled` = the cron entry is present).
+  `CronSchedule` maps calendar schedules to cron fields and intervals to `*/n` steps, failing fast
+  on intervals that don't divide a minute/hour. `calendar`/`interval` capabilities are now true.
 - **Done — Windows backend** (`internal/windows`): routes by job shape (tension T2). A **daemon**
   becomes a real service whose `binPath` is our bundled pure-Java **FFM `ServiceHost`** — it
   speaks the SCM protocol via upcalls (`StartServiceCtrlDispatcherW` + `RegisterServiceCtrlHandlerExW`
@@ -103,11 +108,10 @@ macOS-backend shape.
   ubuntu/macos/windows (JDK 25); the probe runs a real `systemctl` lifecycle (sudo) on the ubuntu
   runner, a real launchd lifecycle on macOS, a real `rc-service` lifecycle in an Alpine/OpenRC
   container, and a real Windows-service lifecycle (the FFM host) on the windows runner.
-- **Not yet (refinements, not platforms):** OpenRC scheduling (no native scheduler — a cron fallback
-  is planned so scheduling reaches all four platforms; OpenRC still reports `calendar`/`interval`
-  false); GUI scheduling UI; next-run/last-run in `ServiceStatus`; per-user Windows services (Windows
-  is SYSTEM_WIDE-only in v1); machine-wide enumeration of third-party Windows services (`list()` is
-  sidecar-scoped there); the lower-JDK Mac/Linux-only build. `UnimplementedBackend` is now unused (all
+- **Not yet (refinements, not platforms):** GUI scheduling UI; next-run/last-run in `ServiceStatus`;
+  per-user Windows services (Windows is SYSTEM_WIDE-only in v1); machine-wide enumeration of
+  third-party Windows services (`list()` is sidecar-scoped there); the lower-JDK Mac/Linux-only
+  build. (Scheduling itself now works on all four platforms.) `UnimplementedBackend` is now unused (all
   four platforms have real backends) but kept as a clear "not implemented" signal.
 - **Refinements made during impl:**
   - **macOS `displayName` round-trips** via a side-band plist key
@@ -231,11 +235,12 @@ dispatcher), so the jar's role as the Windows "execution helper" is preserved.
 
 Owner approved adding scheduling to **all four platforms** + showing next-run/last-run. Sequenced as
 release-worthy PRs:
-1. ✅ **systemd `.timer`** — DONE (this PR). `.timer` + oneshot `.service` pair; `calendar`/`interval`
+1. ✅ **systemd `.timer`** — DONE. `.timer` + oneshot `.service` pair; `calendar`/`interval`
    caps flipped true; real `.timer` armed by the probe.
-2. **OpenRC scheduling via a cron fallback** — OpenRC has no native scheduler. Add a `Cron` seam (the
-   analog of `RcService`/`Scm`) that writes a crontab/`cron.d` entry; flip OpenRC's caps. Note: cron
-   handles calendar schedules cleanly but intervals only for sub-60-minute divisors (`*/n`).
+2. ✅ **OpenRC scheduling via a cron fallback** — DONE. `Cron` seam (`crontab`) + `CronSchedule`
+   (calendar → fields, interval → `*/n`, fail-fast otherwise); the init script stays the definition
+   record (schedule marker) and a tagged crontab entry runs it; caps flipped true; the probe
+   round-trips a real busybox crontab entry on Alpine.
 3. **next-run / last-run in `ServiceStatus`** — new fields + per-backend plumbing. Available on Windows
    (`schtasks /v`) and systemd (`list-timers`); cron can compute next-run only; **launchd exposes
    neither**, so macOS leaves them null.

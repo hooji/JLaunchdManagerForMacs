@@ -39,6 +39,12 @@ public final class OpenRcScriptWriter {
 		if (adopted) {
 			sb.append("# ").append(OpenRcScriptReader.ADOPTED_MARKER).append(": 1\n");
 		}
+		if (spec.schedule() != null) {
+			// A scheduled job: the script is the definition record; crond runs the command. The
+			// marker round-trips the schedule (the init script itself is never added to a runlevel).
+			sb.append("# ").append(OpenRcScriptReader.SCHEDULE_MARKER).append(": ")
+					.append(CronSchedule.encodeMarker(spec.schedule())).append('\n');
+		}
 		sb.append("# ").append(OpenRcScriptReader.RUNLEVEL_MARKER).append(": ")
 				.append(runlevel).append('\n');
 		sb.append('\n');

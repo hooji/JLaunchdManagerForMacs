@@ -113,8 +113,11 @@ jobs:
           docker run --rm -v "$PWD:/w" -w /w alpine:latest sh -c '
             apk add --no-cache openjdk25-jre openrc >/dev/null &&
             echo "rc-service: $(command -v rc-service)" &&
-            # Minimal OpenRC runtime state so rc-service can run in a non-booted container.
+            echo "crontab: $(command -v crontab)" &&
+            # Minimal OpenRC runtime state so rc-service can run in a non-booted container, and the
+            # busybox crontab spool dir so the scheduled (cron) self-test can write to it.
             mkdir -p /run/openrc && touch /run/openrc/softlevel &&
+            mkdir -p /var/spool/cron/crontabs &&
             echo "===== discovery =====" &&
             java -jar target/servicepal.jar &&
             echo "===== mutation self-test (root) =====" &&
