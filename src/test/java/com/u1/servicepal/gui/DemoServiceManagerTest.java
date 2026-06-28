@@ -105,4 +105,16 @@ class DemoServiceManagerTest {
 		assertEquals(1234, status.pid());
 		assertNotNull(manager.read("com.example.demo"));
 	}
+
+	@Test
+	void unmanagedSeedShowsInListButNotListManaged() {
+		final DemoServiceManager manager = newManager();
+		final ServiceSpec other = ServiceSpec.builder().id("com.other.svc").command("/bin/x").build();
+		manager.seed(other, RunState.RUNNING, 77, true, null, false);
+
+		assertEquals(1, manager.list().size(), "list() includes discovered (unmanaged) services");
+		assertTrue(manager.listManaged().isEmpty(), "listManaged() excludes unmanaged services");
+		assertFalse(manager.isManaged("com.other.svc"));
+		assertFalse(manager.status("com.other.svc").managed());
+	}
 }

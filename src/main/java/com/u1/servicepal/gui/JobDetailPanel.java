@@ -25,6 +25,7 @@ final class JobDetailPanel extends JPanel {
 	private static final String DETAIL = "detail";
 
 	private final JLabel title = new JLabel();
+	private final JLabel managedNote = new JLabel();
 	private final JLabel statusValue = new JLabel();
 	private final JLabel commandValue = new JLabel();
 	private final JLabel folderValue = new JLabel();
@@ -59,7 +60,15 @@ final class JobDetailPanel extends JPanel {
 		final JPanel panel = new JPanel(new BorderLayout(0, 16));
 
 		title.setFont(title.getFont().deriveFont(Font.BOLD, title.getFont().getSize2D() + 6f));
-		panel.add(title, BorderLayout.NORTH);
+		title.setAlignmentX(LEFT_ALIGNMENT);
+		managedNote.setAlignmentX(LEFT_ALIGNMENT);
+		managedNote.setEnabled(false);   // muted hint, only shown for unmanaged services
+		final JPanel heading = new JPanel();
+		heading.setLayout(new BoxLayout(heading, BoxLayout.PAGE_AXIS));
+		heading.add(title);
+		heading.add(Box.createVerticalStrut(4));
+		heading.add(managedNote);
+		panel.add(heading, BorderLayout.NORTH);
 
 		final JPanel grid = new JPanel(new GridBagLayout());
 		addRow(grid, 0, "Status", statusValue);
@@ -117,6 +126,10 @@ final class JobDetailPanel extends JPanel {
 		title.setIconTextGap(10);
 		title.setText(job.displayName());
 
+		final boolean managed = job.managed();
+		managedNote.setText("Not created with ServicePal — shown for reference (view only).");
+		managedNote.setVisible(!managed);
+
 		statusValue.setText(statusText(status));
 		statusValue.setForeground(StatusVisuals.color(status.state()));
 		commandValue.setText(spec == null ? "(unreadable)" : String.join(" ", spec.command()));
@@ -125,10 +138,13 @@ final class JobDetailPanel extends JPanel {
 		autoStartValue.setText(status.enabled() ? "Yes" : "No");
 		restartValue.setText(spec == null ? "—" : restartLabel(spec.restart()));
 
+		// Only managed jobs are actionable; unmanaged ones are read-only.
 		final boolean running = status.state() == RunState.RUNNING;
-		startBtn.setEnabled(!running);
-		stopBtn.setEnabled(running);
-		restartBtn.setEnabled(running);
+		startBtn.setEnabled(managed && !running);
+		stopBtn.setEnabled(managed && running);
+		restartBtn.setEnabled(managed && running);
+		editBtn.setEnabled(managed);
+		removeBtn.setEnabled(managed);
 		((CardLayout) getLayout()).show(this, DETAIL);
 	}
 

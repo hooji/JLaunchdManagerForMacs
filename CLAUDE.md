@@ -159,10 +159,15 @@ everything else → `DiscoverCli`. **The Windows service host is unaffected** �
 it as `javaw -cp <jar> ...windows.ServiceHost --id <id>` (explicit main class, never via the
 dispatcher), so the jar's role as the Windows "execution helper" is preserved.
 
-- **What it exposes:** master-detail list of managed jobs (status dots, pid, state), add/edit (name,
+- **What it exposes:** master-detail list of **all discovered services** (`list()`), split into two
+  header-separated sections — **"Created with ServicePal"** (full control) and **"Other background
+  jobs"** (everything else found on the machine). Managed jobs: status dots/pid/state, add/edit (name,
   command, arguments, working folder, *start automatically*, *if it stops* → `RestartPolicy`),
-  start/stop/restart, remove. Hides schedules, run-as identity, `.mac()/.systemd()/...` blocks — the
-  UI is identical on all four platforms.
+  start/stop/restart, remove. **Unmanaged services are read-only** — all actions disabled + a "view
+  only" note (editing/removing them needs the hidden `yesDoThisToAServiceIDidNotCreate` override); the
+  group is for visibility, not control. Section headers are non-selectable (`JobListPanel` skips them
+  in `changeSelection`). Hides schedules, run-as identity, `.mac()/.systemd()/...` blocks — the UI is
+  identical on all four platforms.
 - **Auto privilege model** (`JobSpecs.fromForm` + `capabilities()`): per-user where supported
   (macOS/systemd → no admin, login start), else system daemon (Windows/OpenRC → boot start, needs
   elevation). The GUI never mentions `RunAs`/`Installation`.

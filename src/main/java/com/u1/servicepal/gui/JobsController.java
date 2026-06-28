@@ -95,7 +95,7 @@ final class JobsController implements JobActions {
 		refreshBtn.addActionListener(e -> refresh());
 	}
 
-	/** Load the managed jobs and repaint, preserving (or overriding) the selection. */
+	/** Load every discoverable job and repaint, preserving (or overriding) the selection. */
 	@Override
 	public void refresh() {
 		refreshAndSelect(null);
@@ -160,15 +160,21 @@ final class JobsController implements JobActions {
 
 	private List<Job> loadJobs() {
 		final List<Job> jobs = new ArrayList<>();
-		for (final ServiceStatus status : manager.listManaged()) {
+		for (final ServiceStatus status : manager.list()) {
 			ServiceSpec spec = null;
 			try {
-				spec = manager.read(status.id());
+				// Read the parsed definition (works for unmanaged services too on macOS/systemd/
+				// OpenRC); fall back to id + live state if it can't be parsed.
+				spec = status.installation() != null
+						? manager.read(status.id(), status.installation())
+						: manager.read(status.id());
 			} catch (final RuntimeException ignored) {
 				// leave spec null; the row still shows id + live state
 			}
 			jobs.add(new Job(spec, status));
 		}
+		// Alphabetical within each section (the table model groups managed-vs-other).
+		jobs.sort((a, b) -> a.displayName().compareToIgnoreCase(b.displayName()));
 		return jobs;
 	}
 
@@ -188,8 +194,8 @@ final class JobsController implements JobActions {
 	@Override
 	public void editSelected() {
 		final Job job = list.selectedJob();
-		if (job == null) {
-			return;
+		if (job == null || !job.managed()) {
+			return;   // unmanaged services are view-only
 		}
 		final JobForm form = JobDialog.showDialog(owner, "Edit Job", toForm(job));
 		if (form != null) {
@@ -200,8 +206,8 @@ final class JobsController implements JobActions {
 	@Override
 	public void removeSelected() {
 		final Job job = list.selectedJob();
-		if (job == null) {
-			return;
+		if (job == null || !job.managed()) {
+			return;   // unmanaged services are view-only
 		}
 		final int choice = JOptionPane.showConfirmDialog(owner,
 				"Remove “" + job.displayName() + "”?\nThis stops it and deletes its definition.",
@@ -342,23 +348,34 @@ final class JobsController implements JobActions {
 		if (busy) {
 			return;
 		}
-		final boolean has = job != null;
-		final boolean running = has && job.status().state() == RunState.RUNNING;
-		startBtn.setEnabled(has && !running);
-		stopBtn.setEnabled(running);
-		restartBtn.setEnabled(running);
-		removeBtn.setEnabled(has);
+		// Only jobs ServicePal created are actionable; others are shown read-only (editing or
+		// removing them would need the deliberately-hidden "yes, touch a service I didn't create").
+		final boolean managed = job != null && job.managed();
+		final boolean running = job != null && job.status().state() == RunState.RUNNING;
+		startBtn.setEnabled(managed && !running);
+		stopBtn.setEnabled(managed && running);
+		restartBtn.setEnabled(managed && running);
+		removeBtn.setEnabled(managed);
 	}
 
 	private void updateStatusBar(final List<Job> jobs) {
+		int mine = 0;
 		int running = 0;
 		for (final Job job : jobs) {
+			if (job.managed()) {
+				mine++;
+			}
 			if (job.status().state() == RunState.RUNNING) {
 				running++;
 			}
 		}
-		final String count = jobs.size() + (jobs.size() == 1 ? " job" : " jobs") + " · " + running
-				+ " running";
+		final int others = jobs.size() - mine;
+		final StringBuilder count = new StringBuilder();
+		count.append(mine).append(" created here");
+		if (others > 0) {
+			count.append(" · ").append(others).append(" other");
+		}
+		count.append(" · ").append(running).append(" running");
 		statusBar.setText(platformLabel(manager.platform()) + "        " + count);
 	}
 

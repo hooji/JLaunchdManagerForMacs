@@ -42,7 +42,60 @@ public final class DemoData {
 				null, true, RestartPolicy.ON_FAILURE),
 				RunState.FAILED, null, true, 1);
 
+		seedOthers(mgr, platform);
 		return mgr;
+	}
+
+	/**
+	 * Seed a few services ServicePal did <em>not</em> create, so the demo shows the second
+	 * ("Other background jobs") section. Names are chosen to look native to each platform.
+	 */
+	private static void seedOthers(final DemoServiceManager mgr, final Platform platform) {
+		switch (platform) {
+			case MACOS_LAUNCHD -> {
+				mgr.seed(raw("com.google.keystone.agent",
+						"/Library/Google/GoogleSoftwareUpdate/.../GoogleSoftwareUpdateAgent", false),
+						RunState.RUNNING, 612, true, null, false);
+				mgr.seed(raw("com.docker.helper",
+						"/Applications/Docker.app/Contents/MacOS/com.docker.helper", false),
+						RunState.RUNNING, 988, true, null, false);
+				mgr.seed(raw("homebrew.mxcl.postgresql",
+						"/opt/homebrew/opt/postgresql/bin/postgres", true),
+						RunState.STOPPED, null, false, null, false);
+			}
+			case LINUX_SYSTEMD -> {
+				mgr.seed(raw("cups.service", "/usr/sbin/cupsd -l", true),
+						RunState.RUNNING, 743, true, null, false);
+				mgr.seed(raw("ssh.service", "/usr/sbin/sshd -D", true),
+						RunState.RUNNING, 911, true, null, false);
+				mgr.seed(raw("containerd.service", "/usr/bin/containerd", true),
+						RunState.STOPPED, null, false, null, false);
+			}
+			case LINUX_OPENRC -> {
+				mgr.seed(raw("sshd", "/usr/sbin/sshd", true),
+						RunState.RUNNING, 514, true, null, false);
+				mgr.seed(raw("crond", "/usr/sbin/crond -f", true),
+						RunState.RUNNING, 540, true, null, false);
+				mgr.seed(raw("nginx", "/usr/sbin/nginx", true),
+						RunState.STOPPED, null, false, null, false);
+			}
+			case WINDOWS -> {
+				mgr.seed(raw("Spooler", "C:\\Windows\\System32\\spoolsv.exe", true),
+						RunState.RUNNING, 1320, true, null, false);
+				mgr.seed(raw("W32Time", "C:\\Windows\\System32\\svchost.exe -k LocalService", true),
+						RunState.RUNNING, 1564, true, null, false);
+				mgr.seed(raw("WSearch", "C:\\Windows\\System32\\SearchIndexer.exe", true),
+						RunState.STOPPED, null, false, null, false);
+			}
+		}
+	}
+
+	/** A minimal spec for a discovered (not ServicePal-created) service; its id is its display name. */
+	private static ServiceSpec raw(final String id, final String command, final boolean system) {
+		if (system) {
+			return ServiceSpec.builder().id(id).command(command).asSystemDaemon().build();
+		}
+		return ServiceSpec.builder().id(id).command(command).asCurrentUser().build();
 	}
 
 	private static ServiceSpec job(final Capabilities caps, final String name, final String id,

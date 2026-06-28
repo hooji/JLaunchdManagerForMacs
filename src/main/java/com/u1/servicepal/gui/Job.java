@@ -16,4 +16,9 @@ public record Job(ServiceSpec spec, ServiceStatus status) {
 	public String displayName() {
 		return spec != null ? spec.displayName() : status.id();
 	}
+
+	/** Whether ServicePal created this service (vs. one merely discovered on the machine). */
+	public boolean managed() {
+		return status.managed();
+	}
 }
