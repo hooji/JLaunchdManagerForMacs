@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.u1.servicepal.Installation;
+import com.u1.servicepal.NativeCommandException;
 import com.u1.servicepal.model.CalendarSchedule;
 import com.u1.servicepal.model.Discovery;
 import com.u1.servicepal.model.RestartPolicy;
@@ -152,6 +153,45 @@ class LaunchdBackendTest {
 		assertEquals(id, backend.read(id, Installation.PER_USER).displayName(), "no stale name");
 		assertFalse(backend.readNative(id, Installation.PER_USER).contains(PlistReader.DISPLAY_NAME_KEY),
 				"the display-name key is removed when the name is cleared");
+	}
+
+	@Test
+	void installRetriesBootstrapPastTheTransientReloadRace() {
+		// The first two bootstrap attempts fail with EIO (the async-bootout race); install must
+		// retry and ultimately succeed, leaving the service bootstrapped (not booted out).
+		launchctl.bootstrapFailures = 2;
+		launchctl.bootstrapFailureExitCode = 5;
+
+		backend.install(sleepSpec(), false);
+
+		boolean bootstrapped = false;
+		for (final String call : launchctl.calls) {
+			if (call.startsWith("bootstrap ")) {
+				bootstrapped = true;
+			}
+		}
+		assertTrue(bootstrapped, "install eventually bootstraps after transient EIO failures");
+	}
+
+	@Test
+	void installPropagatesANonTransientBootstrapError() {
+		// A non-transient bootstrap failure (e.g. a malformed plist) must surface, not spin retrying.
+		launchctl.bootstrapFailures = 99;
+		launchctl.bootstrapFailureExitCode = 3;
+		launchctl.bootstrapFailureMessage = "Bootstrap failed: 3: No such process";
+
+		assertThrows(NativeCommandException.class, () -> backend.install(sleepSpec(), false));
+	}
+
+	@Test
+	void classifiesTransientReloadErrors() {
+		final List<String> cmd = List.of("launchctl", "bootstrap");
+		assertTrue(LaunchdBackend.isTransientReloadError(
+				new NativeCommandException(cmd, 5, "Input/output error")), "EIO is transient");
+		assertTrue(LaunchdBackend.isTransientReloadError(
+				new NativeCommandException(cmd, 0, "Operation already in progress")), "in-progress");
+		assertFalse(LaunchdBackend.isTransientReloadError(
+				new NativeCommandException(cmd, 3, "No such process")), "real error is not transient");
 	}
 
 	@Test

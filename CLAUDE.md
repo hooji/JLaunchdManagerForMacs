@@ -108,6 +108,15 @@ macOS-backend shape.
     no native friendly-name field (its `Label` is the id). systemd (`Description=`), OpenRC
     (`description=`), and Windows (sidecar JSON) already round-trip it. `install` rewrites the whole
     plist, so renames/clears never leave a stale key.
+  - **macOS upsert reload race fixed.** `install` reloads via `bootout`+`bootstrap`, but `bootout`
+    is asynchronous — a `bootstrap` issued before the old instance finishes unloading fails with
+    "Bootstrap failed: 5: Input/output error" (EIO) or EBUSY (37) and leaves the service booted out
+    (so the next start fails). `LaunchdBackend.reload` now retries the bootstrap with backoff
+    (`isTransientReloadError` → codes 5/37 + message match). Reproduced by `RenameProbeCli` /
+    `mac-rename-probe.yml` on real macOS runners (a service that's slow to stop + repeated renames
+    makes the race fire; it was green→red→green across the fix). This is a per-user (`gui/<uid>`)
+    path — no root needed. The GUI's "needs sudo" hint no longer fires on it (the matcher stopped
+    keying on launchctl's generic "re-run as root" advice).
   - `ServiceStatus` gained an `installation` field (handy for discovery grouping).
   - Discovery returns a **`Discovery(services, unreadable)`** — root-only/malformed plists are
     **reported by name**, not silently dropped (`ServiceManager.discover()`; `list()` is the

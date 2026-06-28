@@ -29,6 +29,13 @@ import java.util.List;
  */
 public final class LaunchdBackend implements Backend {
 
+	// `launchctl bootout` is asynchronous; a `bootstrap` issued before the old instance has finished
+	// unloading races the teardown and fails with "Bootstrap failed: 5: Input/output error". Retry
+	// the bootstrap, backing off, to let the teardown complete. The budget (8 attempts, 300ms ×
+	// attempt → ~8.4s total) comfortably outlasts a service that is a few seconds slow to stop.
+	private static final int BOOTSTRAP_ATTEMPTS = 8;
+	private static final long BOOTSTRAP_BACKOFF_MS = 300L;
+
 	private final Launchctl launchctl;
 	private final List<LaunchdDir> directories;
 	private final PlistReader reader = new PlistReader();
@@ -155,14 +162,61 @@ public final class LaunchdBackend implements Backend {
 			throw new DefinitionIOException("failed to write " + file, e);
 		}
 
-		// Upsert: if a previous instance is loaded, unload before (re)loading. Ignore the
-		// "not loaded" failure of the first bootout.
+		// Upsert: unload any loaded instance, then (re)load the freshly written plist.
+		reload(target, spec.id(), file);
+	}
+
+	/**
+	 * Reload a (possibly already-loaded) service: {@code bootout} any current instance, then
+	 * {@code bootstrap} the written plist. Because {@code bootout} is asynchronous, a bootstrap
+	 * issued immediately can race the still-running teardown and fail with EIO ("Bootstrap failed:
+	 * 5: Input/output error") — which, left unhandled, also leaves the service booted out so a
+	 * follow-up start cannot find it. Retry the bootstrap on that transient error, backing off to
+	 * give the teardown time to finish. A user-owned ({@code gui/<uid>}) agent reloads without root.
+	 */
+	private void reload(final LaunchdDir target, final String id, final Path file) {
 		try {
-			launchctl.bootout(target.domain(), spec.id());
+			launchctl.bootout(target.domain(), id);
 		} catch (final NativeCommandException ignored) {
 			// not currently loaded — fine
 		}
-		launchctl.bootstrap(target.domain(), file);
+		for (int attempt = 1; attempt <= BOOTSTRAP_ATTEMPTS; attempt++) {
+			try {
+				launchctl.bootstrap(target.domain(), file);
+				return;
+			} catch (final NativeCommandException e) {
+				if (attempt == BOOTSTRAP_ATTEMPTS || !isTransientReloadError(e)) {
+					throw e;
+				}
+				sleepQuietly(BOOTSTRAP_BACKOFF_MS * attempt);
+			}
+		}
+	}
+
+	/**
+	 * Whether a {@code bootstrap} failure looks like the transient bootout-still-in-flight race
+	 * (worth retrying) rather than a real error (e.g. a bad plist or a permission problem). Matches
+	 * both the exit code and the message, since the wording varies across macOS versions.
+	 */
+	static boolean isTransientReloadError(final NativeCommandException e) {
+		if (e.exitCode() == 5 || e.exitCode() == 37) {   // EIO / EBUSY
+			return true;
+		}
+		final String s = (e.stderr() != null ? e.stderr() : e.getMessage())
+				.toLowerCase(java.util.Locale.ROOT);
+		return s.contains("input/output error")
+				|| s.contains("operation already in progress")
+				|| s.contains("operation now in progress")
+				|| s.contains("service already loaded")
+				|| s.contains("already bootstrapped");
+	}
+
+	private static void sleepQuietly(final long millis) {
+		try {
+			Thread.sleep(millis);
+		} catch (final InterruptedException e) {
+			Thread.currentThread().interrupt();
+		}
 	}
 
 	@Override
