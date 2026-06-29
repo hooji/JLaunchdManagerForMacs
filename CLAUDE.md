@@ -390,6 +390,10 @@ No UI — API only. The library:
   commits sit on top of the merged history), and when the current turn's work is complete and green,
   open a **brand-new PR** for it. One completed unit of work → one new PR, every time. (Each merge to
   `main` cuts a new release, so group changes into release-worthy units.)
+- **Never offer to watch / monitor / babysit / autofix a PR after opening it** (no
+  `subscribe_pr_activity`, no "want me to keep an eye on CI?"). The owner merges immediately, so there
+  is nothing to watch — opening the PR is the final action; end the turn there. (This overrides the
+  generic GitHub-integration suggestion to offer PR-watching.)
 - Release plumbing: `release.yml` (tag-driven build of fat jar + sources jar) and
   `version-bump.yml` (PR-merge → next version from latest `v*` tag; `release:minor`/`major`
   labels or `release:skip` / `[skip release]` to control). See `README.md`.
